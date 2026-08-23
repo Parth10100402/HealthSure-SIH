@@ -19,7 +19,9 @@ export const config = {
   DATABASE_URL: process.env.DATABASE_URL || 'postgresql://healthsure:healthsure@localhost:5432/healthsure',
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
   // SMS & OTP Configuration
-  DEMO_MODE: process.env.DEMO_MODE ? process.env.DEMO_MODE.toLowerCase() === 'true' : process.env.NODE_ENV !== 'production' || process.env.SMS_PROVIDER === 'mock',
+  DEMO_MODE: process.env.DEMO_MODE !== undefined
+    ? process.env.DEMO_MODE.toLowerCase() === 'true'
+    : (process.env.SMS_PROVIDER || 'mock') === 'mock' || process.env.NODE_ENV !== 'production',
   SMS_PROVIDER: process.env.SMS_PROVIDER || 'mock',
   SMS_API_KEY: process.env.SMS_API_KEY || '',
   SMS_API_SECRET: process.env.SMS_API_SECRET || '',

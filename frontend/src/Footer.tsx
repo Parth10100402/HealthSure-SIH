@@ -12,10 +12,10 @@ import { LogoIcon } from './LogoIcon';
 import { HEALTHSURE_IVR_NUMBER, HEALTHSURE_IVR_TEL } from '../config/constants';
 
 interface FooterProps {
-  onNavigate?: (tab: string) => void;
+  onNavigate: (tab: string) => void;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onNavigate: _onNavigate }) => {
+export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
   const [openFaqId, setOpenFaqId] = useState<string | null>(null);
 
   const toggleFaq = (id: string) => {

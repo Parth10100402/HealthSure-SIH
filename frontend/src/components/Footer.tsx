@@ -9,12 +9,13 @@ import {
 } from 'lucide-react';
 import { MOCK_FAQS } from '../data/mockData';
 import { LogoIcon } from './LogoIcon';
+import { HEALTHSURE_IVR_NUMBER, HEALTHSURE_IVR_TEL } from '../config/constants';
 
 interface FooterProps {
-  onNavigate: (tab: string) => void;
+  onNavigate?: (tab: string) => void;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
+export const Footer: React.FC<FooterProps> = ({ onNavigate: _onNavigate }) => {
   const [openFaqId, setOpenFaqId] = useState<string | null>(null);
 
   const toggleFaq = (id: string) => {
@@ -75,20 +76,20 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
         <div className="p-6 rounded-3xl bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-600 text-white shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="space-y-1 text-center sm:text-left">
             <h4 className="text-lg font-black flex items-center justify-center sm:justify-start gap-2">
-              <Phone className="w-5 h-5 animate-bounce" /> 24/7 National Emergency & Triage Hotline
+              <Phone className="w-5 h-5 animate-bounce" /> 24/7 HealthSure IVR Healthcare Helpline
             </h4>
             <p className="text-xs text-blue-100 font-medium">
-              Toll-Free Immediate Consultation: 1800-HEALTH-SURE (1800-432-584-7873)
+              Toll-Free Direct Access: <a href={HEALTHSURE_IVR_TEL} className="font-bold underline hover:text-white">{HEALTHSURE_IVR_NUMBER}</a> (Works without internet)
             </p>
           </div>
 
-          <button
-            onClick={() => onNavigate('symptoms')}
-            className="px-6 py-3 rounded-2xl bg-white text-blue-700 hover:bg-slate-100 font-black text-xs shadow-md hover:scale-105 transition-all flex items-center space-x-1.5"
+          <a
+            href={HEALTHSURE_IVR_TEL}
+            className="px-6 py-3 rounded-2xl bg-white text-blue-700 hover:bg-slate-100 font-black text-xs shadow-md hover:scale-105 transition-all flex items-center space-x-1.5 cursor-pointer"
           >
-            <span>Start Free Triage</span>
+            <span>Call HealthSure</span>
             <ArrowUpRight className="w-4 h-4" />
-          </button>
+          </a>
         </div>
 
         {/* Bottom Brand Bar */}

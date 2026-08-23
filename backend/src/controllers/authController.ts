@@ -273,7 +273,7 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction): 
     const isDemo = Boolean(config.DEMO_MODE || config.SMS_PROVIDER === 'mock');
     
     let smsResult;
-    if (config.DEMO_MODE || config.SMS_PROVIDER === 'mock') {
+    if (isDemo) {
       smsResult = await smsService.getProvider('mock').sendOtp(cleanNumber, otp, {
         name: existingUser?.name || 'Patient',
         appName: 'HealthSure',
@@ -295,7 +295,7 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction): 
       return;
     }
 
-    // 6. Respond securely (In demo mode / dev mode only, provide demoOtp for judges/evaluators)
+    // 6. Respond securely (In demo mode, provide demoOtp for judges/evaluators)
     const responsePayload: Record<string, any> = {
       success: true,
       message: `OTP sent successfully to +91 ${cleanNumber}.`,
@@ -305,7 +305,7 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction): 
       demoMode: isDemo,
     };
 
-    if (isDemo && (config.DEMO_MODE || config.NODE_ENV === 'development')) {
+    if (isDemo) {
       responsePayload.demoOtp = otp;
     }
 
