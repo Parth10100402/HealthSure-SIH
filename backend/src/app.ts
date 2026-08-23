@@ -5,7 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import { config } from './config/env.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { db } from './db/store.js';
+import { dataStore } from './db/store.js';
 
 // Route Imports
 import authRoutes from './routes/authRoutes.js';
@@ -50,7 +50,7 @@ export const createApp = () => {
   // Ensure In-Memory Database is seeded during serverless cold-starts
   app.use(async (_req, _res, next) => {
     try {
-      await db.initialize();
+      await dataStore.initialize();
     } catch (e) {
       console.error('[DataStore] Cold-start initialization error:', e);
     }
