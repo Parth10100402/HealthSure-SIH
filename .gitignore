@@ -55,3 +55,6 @@ Thumbs.db
 *.tar.gz
 coverage/
 .nyc_output/
+
+.vercel
+.env*
