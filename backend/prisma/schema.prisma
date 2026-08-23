@@ -1,0 +1,438 @@
+// HealthSure — Database Schema (Prisma ORM)
+// backend/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  PATIENT
+  DOCTOR
+  HOSPITAL_STAFF
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum FacilityType {
+  SUB_CENTRE
+  PHC
+  SUB_DISTRICT_HOSPITAL
+  DISTRICT_HOSPITAL
+  HOSPITAL
+}
+
+enum FacilityStatus {
+  OPERATIONAL
+  ATTENTION_REQUIRED
+}
+
+enum AppointmentMode {
+  IN_PERSON
+  OUTREACH
+  TELECONSULTATION
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  WAITING
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum OutreachStatus {
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum Priority {
+  NORMAL
+  URGENT
+}
+
+enum ReferralStatus {
+  CREATED
+  HOSPITAL_ACCEPTED
+  APPOINTMENT_SCHEDULED
+  PATIENT_VISIT
+  CONSULTATION_COMPLETED
+  FOLLOW_UP
+  COMPLETED
+}
+
+enum RecordType {
+  CONSULTATION
+  PRESCRIPTION
+  DIAGNOSTIC
+  REFERRAL
+  FOLLOW_UP
+}
+
+enum DiagnosticStatus {
+  AVAILABLE
+  LIMITED
+  REFERRAL_REQUIRED
+  UNAVAILABLE
+}
+
+enum EquipmentStatus {
+  OPERATIONAL
+  MAINTENANCE
+  CALIBRATION
+}
+
+enum DiagnosticReportStatus {
+  PENDING
+  READY
+  DELIVERED
+}
+
+enum TeleconsultStatus {
+  SCHEDULED
+  WAITING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum NetworkMode {
+  ADAPTIVE_2G_AUDIO
+  HD_VIDEO
+}
+
+enum FollowUpStatus {
+  UPCOMING
+  DUE
+  COMPLETED
+  OVERDUE
+}
+
+enum NotificationType {
+  APPOINTMENT_CONFIRMED
+  REFERRAL_ACCEPTED
+  FOLLOW_UP_DUE
+  OUTREACH_AVAILABLE
+  TELECONSULTATION_REMINDER
+  SYSTEM
+}
+
+model User {
+  id             String         @id @default(uuid())
+  name           String
+  email          String?        @unique
+  phone          String?        @unique
+  passwordHash   String
+  role           Role           @default(PATIENT)
+  status         UserStatus     @default(ACTIVE)
+  preferredLang  String         @default("en")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  patient        Patient?
+  doctor         Doctor?
+  notifications  Notification[]
+
+  @@map("users")
+}
+
+model Facility {
+  id             String         @id @default(uuid())
+  facilityId     String         @unique
+  name           String
+  type           FacilityType   @default(PHC)
+  district       String
+  taluka         String
+  state          String         @default("Maharashtra")
+  contactPhone   String?
+  status         FacilityStatus @default(OPERATIONAL)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  doctors        Doctor[]
+  outreachEvents SpecialistOutreach[]
+  diagnostics    DiagnosticService[]
+  referralsFrom  Referral[]     @relation("ReferredFrom")
+  referralsTo    Referral[]     @relation("ReferredTo")
+  appointments   Appointment[]
+  healthRecords  HealthRecord[]
+  followUps      FollowUp[]
+
+  @@map("facilities")
+}
+
+model Patient {
+  id                String         @id @default(uuid())
+  userId            String         @unique
+  patientId         String         @unique
+  fullName          String
+  dateOfBirth       String?
+  gender            String?
+  mobile            String?
+  email             String?
+  village           String?
+  district          String?
+  state             String         @default("Maharashtra")
+  registeredPHC     String?
+  emergencyContact  String?
+  preferredLanguage String         @default("en")
+  abhaNumber        String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointments      Appointment[]
+  referrals         Referral[]
+  healthRecords     HealthRecord[]
+  followUps         FollowUp[]
+  teleconsultations Teleconsultation[]
+  diagnosticReports DiagnosticReport[]
+
+  @@map("patients")
+}
+
+model Doctor {
+  id                 String         @id @default(uuid())
+  userId             String         @unique
+  doctorId           String         @unique
+  name               String
+  speciality         String
+  registrationNumber String         @unique
+  hospitalId         String
+  designation        String?
+  status             String         @default("active")
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  user               User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  facility           Facility       @relation(fields: [hospitalId], references: [id])
+  appointments       Appointment[]
+  referrals          Referral[]
+  healthRecords      HealthRecord[]
+  followUps          FollowUp[]
+  outreachSchedules  SpecialistOutreach[]
+  teleconsultations  Teleconsultation[]
+
+  @@map("doctors")
+}
+
+model SpecialistOutreach {
+  id                String         @id @default(uuid())
+  outreachId        String         @unique
+  doctorId          String
+  hospitalId        String
+  destinationPHC    String
+  speciality        String
+  date              String
+  startTime         String
+  endTime           String
+  totalSlots        Int            @default(24)
+  availableSlots    Int            @default(24)
+  status            OutreachStatus @default(SCHEDULED)
+  mmuVehicleStatus  String         @default("Operational")
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  doctor            Doctor         @relation(fields: [doctorId], references: [id])
+  facility          Facility       @relation(fields: [hospitalId], references: [id])
+  appointments      Appointment[]
+
+  @@map("specialist_outreaches")
+}
+
+model Referral {
+  id                   String         @id @default(uuid())
+  referralId           String         @unique
+  patientId            String
+  referringFacilityId  String
+  receivingHospitalId  String
+  referringDoctorId    String?
+  speciality           String
+  reason               String
+  priority             Priority       @default(NORMAL)
+  status               ReferralStatus @default(CREATED)
+  tokenNumber          String?
+  turnaroundHours      Float          @default(4.0)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  patient              Patient        @relation(fields: [patientId], references: [id])
+  referringFacility    Facility       @relation("ReferredFrom", fields: [referringFacilityId], references: [id])
+  receivingHospital    Facility       @relation("ReferredTo", fields: [receivingHospitalId], references: [id])
+  referringDoctor      Doctor?        @relation(fields: [referringDoctorId], references: [id])
+  appointments         Appointment[]
+
+  @@map("referrals")
+}
+
+model Appointment {
+  id                String            @id @default(uuid())
+  appointmentId     String            @unique
+  patientId         String
+  doctorId          String
+  facilityId        String
+  outreachId        String?
+  referralId        String?
+  date              String
+  startTime         String
+  endTime           String?
+  mode              AppointmentMode   @default(IN_PERSON)
+  status            AppointmentStatus @default(CONFIRMED)
+  token             String?
+  reasonForVisit    String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  patient           Patient           @relation(fields: [patientId], references: [id])
+  doctor            Doctor            @relation(fields: [doctorId], references: [id])
+  facility          Facility          @relation(fields: [facilityId], references: [id])
+  outreach          SpecialistOutreach? @relation(fields: [outreachId], references: [id])
+  referral          Referral?         @relation(fields: [referralId], references: [id])
+  teleconsultation  Teleconsultation?
+  healthRecords     HealthRecord[]
+  followUps         FollowUp[]
+
+  @@map("appointments")
+}
+
+model HealthRecord {
+  id             String       @id @default(uuid())
+  patientId      String
+  doctorId       String
+  facilityId     String
+  appointmentId  String?
+  recordType     RecordType   @default(CONSULTATION)
+  title          String
+  date           String
+  clinicalNotes  String
+  diagnosis      String?
+  vitalsJson     String?      // Stored as JSON string
+  prescriptionJson String?    // Stored as JSON string
+  createdAt      DateTime     @default(now())
+
+  patient        Patient      @relation(fields: [patientId], references: [id])
+  doctor         Doctor       @relation(fields: [doctorId], references: [id])
+  facility       Facility     @relation(fields: [facilityId], references: [id])
+  appointment    Appointment? @relation(fields: [appointmentId], references: [id])
+
+  @@map("health_records")
+}
+
+model DiagnosticService {
+  id                  String           @id @default(uuid())
+  facilityId          String
+  name                String
+  category            String
+  status              DiagnosticStatus @default(AVAILABLE)
+  equipmentStatus     EquipmentStatus  @default(OPERATIONAL)
+  estimatedTurnaround String           @default("2 Hours")
+  dailyVolume         Int              @default(20)
+  lastUpdated         DateTime         @default(now())
+
+  facility            Facility         @relation(fields: [facilityId], references: [id])
+
+  @@map("diagnostic_services")
+}
+
+model DiagnosticReport {
+  id               String                 @id @default(uuid())
+  patientId        String
+  facilityId       String
+  testName         String
+  category         String
+  date             String
+  status           DiagnosticReportStatus @default(READY)
+  resultsSummary   String?
+  reportReference  String?
+  createdAt        DateTime               @default(now())
+
+  patient          Patient                @relation(fields: [patientId], references: [id])
+
+  @@map("diagnostic_reports")
+}
+
+model Teleconsultation {
+  id               String            @id @default(uuid())
+  appointmentId    String            @unique
+  patientId        String
+  doctorId         String
+  status           TeleconsultStatus @default(SCHEDULED)
+  networkMode      NetworkMode       @default(ADAPTIVE_2G_AUDIO)
+  startedAt        DateTime?
+  endedAt          DateTime?
+  durationSeconds  Int               @default(0)
+  clinicalNotes    String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  appointment      Appointment       @relation(fields: [appointmentId], references: [id])
+  patient          Patient           @relation(fields: [patientId], references: [id])
+  doctor           Doctor            @relation(fields: [doctorId], references: [id])
+
+  @@map("teleconsultations")
+}
+
+model FollowUp {
+  id             String          @id @default(uuid())
+  patientId      String
+  doctorId       String
+  facilityId     String
+  appointmentId  String?
+  speciality     String
+  dueDate        String
+  mode           AppointmentMode @default(IN_PERSON)
+  status         FollowUpStatus  @default(UPCOMING)
+  priority       Priority        @default(NORMAL)
+  instructions   String
+  title          String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  patient        Patient         @relation(fields: [patientId], references: [id])
+  doctor         Doctor          @relation(fields: [doctorId], references: [id])
+  facility       Facility        @relation(fields: [facilityId], references: [id])
+  appointment    Appointment?    @relation(fields: [appointmentId], references: [id])
+
+  @@map("follow_ups")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType @default(SYSTEM)
+  title     String
+  message   String
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model OtpSession {
+  id           String    @id @default(uuid())
+  mobile       String    @unique
+  otpHash      String
+  attempts     Int       @default(0)
+  maxAttempts  Int       @default(5)
+  expiresAt    DateTime
+  lastSentAt   DateTime  @default(now())
+  used         Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("otp_sessions")
+}
+

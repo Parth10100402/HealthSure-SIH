@@ -1,0 +1,140 @@
+/* HealthSure — Global Styles */
+/* Phase 1: Authentication Experience */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+/* ── Tailwind v4: use .dark class on <html> for dark mode ─────────────────── */
+@variant dark (&:where(.dark, .dark *));
+
+@layer base {
+
+  /* ── Light mode variables ─────────────────────────────────────────────── */
+  :root {
+    --hs-bg-page:       #F5F9F7;
+    --hs-bg-card:       #FFFFFF;
+    --hs-bg-soft:       #EAF7F2;
+    --hs-border:        #DDE8E4;
+    --hs-primary:       #087F6D;
+    --hs-primary-dark:  #073B3A;
+    --hs-navy:          #12344D;
+    --hs-text-primary:  #17324D;
+    --hs-text-secondary:#64748B;
+    --hs-text-muted:    #9DB5BD;
+  }
+
+  /* ── Dark mode variables ──────────────────────────────────────────────── */
+  .dark {
+    --hs-bg-page:       #051818;
+    --hs-bg-card:       #0A2020;
+    --hs-bg-soft:       #073B3A;
+    --hs-border:        #1A3A3A;
+    --hs-primary:       #087F6D;
+    --hs-primary-dark:  #4FD1C5;
+    --hs-navy:          #12344D;
+    --hs-text-primary:  #E2EEF4;
+    --hs-text-secondary:#7B9EA8;
+    --hs-text-muted:    #4A6B75;
+  }
+
+  html {
+    /* Prevent horizontal overflow */
+    overflow-x: hidden;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+      'IBM Plex Sans', 'Source Sans 3', sans-serif;
+    background-color: var(--hs-bg-page);
+    color: var(--hs-text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    /* Ensure good base font size for accessibility */
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  /* Accessible focus indicator — teal ring, not browser default */
+  *:focus-visible {
+    outline: 2px solid #087F6D;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Remove focus outline for mouse users */
+  *:focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* Ensure minimum touch target size for interactive elements */
+  button,
+  [role="button"],
+  a,
+  input,
+  select,
+  textarea {
+    min-height: 36px;
+  }
+
+  /* Ensure buttons have visible cursor */
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+
+  /* High contrast text */
+  h1, h2, h3, h4, h5, h6 {
+    color: var(--hs-text-primary);
+    line-height: 1.3;
+  }
+}
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #DDE8E4;
+  border-radius: 3px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #1A3A3A;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #087F6D;
+}
+
+/* ── Utility Classes ─────────────────────────────────────────────────────── */
+
+/* HealthSure card */
+.hs-card {
+  background-color: var(--hs-bg-card);
+  border: 1px solid var(--hs-border);
+  border-radius: 1rem;
+}
+
+/* Selection highlight */
+::selection {
+  background-color: #087F6D33;
+  color: var(--hs-text-primary);
+}
+
+/* Prevent content overflow on all screens */
+* {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}

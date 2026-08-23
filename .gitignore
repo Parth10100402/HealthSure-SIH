@@ -1,0 +1,57 @@
+# HealthSure — Root .gitignore
+
+# ─── Secrets — NEVER commit these ────────────────────────────────────────────
+.env
+.env.*
+*.env
+*.env.*
+env
+**/env
+.env.local
+.env.production
+.env.development
+serviceAccountKey.json
+*serviceAccountKey*.json
+*credentials*.json
+*secret*.json
+
+# Allow examples only
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+!frontend/.env.local.example
+
+# ─── Dependencies ─────────────────────────────────────────────────────────────
+node_modules/
+**/node_modules/
+
+# ─── Build outputs ────────────────────────────────────────────────────────────
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── OS / Editor ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ─── Vercel ───────────────────────────────────────────────────────────────────
+.vercel
+
+# ─── Misc ─────────────────────────────────────────────────────────────────────
+*.zip
+*.tar.gz
+coverage/
+.nyc_output/
