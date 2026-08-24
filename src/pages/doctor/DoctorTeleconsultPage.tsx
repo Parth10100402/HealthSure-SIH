@@ -1,6 +1,3 @@
-// HealthSure — Doctor Teleconsultation Live Room
-// frontend/src/pages/doctor/DoctorTeleconsultPage.tsx
-
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -13,34 +10,48 @@ import {
   ArrowLeft,
   CheckCircle2,
 } from 'lucide-react';
-import { useMediaDevices } from '../../hooks/useMediaDevices';
+import { useWebRTC } from '../../hooks/useWebRTC';
 
 export const DoctorTeleconsultPage: React.FC = () => {
   const navigate = useNavigate();
-  const [lowBandwidthMode, setLowBandwidthMode] = useState(false);
   const [liveNotes, setLiveNotes] = useState(
     'Patient reports reduced exertional breathlessness with current medication. Compliant with diet. Advised follow-up 2D-Echo.'
   );
   const [notesSynced, setNotesSynced] = useState(false);
 
   const {
-    permissionStatus,
-    videoRef,
+    connectionState,
+    localVideoRef,
+    remoteVideoRef,
     isCameraOn,
     isMicOn,
+    isRemoteVideoActive,
+    isLowBandwidthMode,
+    callDuration,
     toggleCamera,
     toggleMic,
-    stopMedia,
-  } = useMediaDevices(true);
+    toggleLowBandwidth,
+    endCall,
+  } = useWebRTC({
+    sessionId: 'tele-001',
+    role: 'doctor',
+    autoStart: true,
+  });
 
   const handleEndCall = () => {
-    stopMedia();
+    endCall();
     navigate('/doctor/appointments');
   };
 
   const handleSyncNotes = () => {
     setNotesSynced(true);
     setTimeout(() => setNotesSynced(false), 3000);
+  };
+
+  const formatTimer = (s: number) => {
+    const min = Math.floor(s / 60).toString().padStart(2, '0');
+    const sec = (s % 60).toString().padStart(2, '0');
+    return `${min}:${sec}`;
   };
 
   return (
@@ -51,15 +62,17 @@ export const DoctorTeleconsultPage: React.FC = () => {
           <button
             type="button"
             onClick={handleEndCall}
-            className="p-2 rounded-xl border border-[#DDE8E4] dark:border-[#1A3A3A] text-[#64748B] hover:text-[#17324D] dark:hover:text-white"
+            className="p-2 rounded-xl border border-[#DDE8E4] dark:border-[#1A3A3A] text-[#64748B] hover:text-[#17324D] dark:hover:text-white cursor-pointer"
             aria-label="Back to appointments"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-bold mb-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-              <span>LIVE TELECONSULTATION SESSION</span>
+              <span className={`w-2 h-2 rounded-full ${connectionState === 'connected' ? 'bg-emerald-500 animate-ping' : 'bg-amber-500 animate-pulse'}`} />
+              <span>
+                {connectionState === 'connected' ? 'LIVE TELECONSULTATION SESSION (WebRTC P2P)' : connectionState === 'connecting' ? 'CONNECTING TO PATIENT…' : 'WAITING FOR PATIENT CALL LINK…'}
+              </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
               Remote Rural Tele-Clinic
@@ -73,15 +86,15 @@ export const DoctorTeleconsultPage: React.FC = () => {
         {/* Low-Bandwidth Mode Switch */}
         <button
           type="button"
-          onClick={() => setLowBandwidthMode(!lowBandwidthMode)}
-          className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all ${
-            lowBandwidthMode
+          onClick={toggleLowBandwidth}
+          className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+            isLowBandwidthMode
               ? 'bg-[#EAF7F2] dark:bg-[#073B3A] border-[#087F6D] text-[#087F6D] dark:text-[#4FD1C5]'
               : 'bg-white dark:bg-[#0A2020] border-[#DDE8E4] text-[#64748B]'
           }`}
         >
           <Signal className="w-4 h-4" />
-          <span>2G Low-Bandwidth Mode: {lowBandwidthMode ? 'ON' : 'OFF'}</span>
+          <span>2G Low-Bandwidth Mode: {isLowBandwidthMode ? 'ON' : 'OFF'}</span>
         </button>
       </div>
 
@@ -92,48 +105,55 @@ export const DoctorTeleconsultPage: React.FC = () => {
             {/* Top Overlay */}
             <div className="flex items-center justify-between text-xs text-white/90 z-10">
               <div className="flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className={`w-2 h-2 rounded-full ${connectionState === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
                 <span className="font-bold">PHC Khed Kiosk Feed</span>
                 <span className="text-emerald-400 font-mono text-[10px]">
-                  {lowBandwidthMode ? 'Adaptive Audio Priority (24 kbps)' : 'HD 720p'}
+                  {isLowBandwidthMode ? 'Adaptive Audio Priority (24 kbps)' : 'HD 720p WebRTC'}
                 </span>
               </div>
 
               <div className="bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 text-[11px] font-mono">
-                Duration: 08:42
+                Duration: {formatTimer(callDuration)}
               </div>
             </div>
 
-            {/* Main Video Simulation */}
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center space-y-2">
-                <div className="w-24 h-24 rounded-full bg-[#087F6D]/40 border-2 border-[#4FD1C5] mx-auto flex items-center justify-center text-white text-3xl font-bold">
-                  RS
+            {/* Main Remote Patient Video Stream */}
+            <div className="flex-1 flex items-center justify-center relative overflow-hidden">
+              <video
+                ref={remoteVideoRef}
+                autoPlay
+                playsInline
+                className={`w-full h-full object-cover ${isRemoteVideoActive && !isLowBandwidthMode ? 'block' : 'hidden'}`}
+              />
+
+              {(!isRemoteVideoActive || isLowBandwidthMode) && (
+                <div className="text-center space-y-2">
+                  <div className="w-24 h-24 rounded-full bg-[#087F6D]/40 border-2 border-[#4FD1C5] mx-auto flex items-center justify-center text-white text-3xl font-bold">
+                    RS
+                  </div>
+                  <div className="text-white font-bold text-sm">Ramesh Sharma (Patient)</div>
+                  <div className="text-slate-400 text-xs">
+                    {isLowBandwidthMode ? '🎙️ Audio Priority Mode Active (2G)' : 'Facilitated by Sister Anjali (ANM, PHC Khed)'}
+                  </div>
                 </div>
-                <div className="text-white font-bold text-sm">Ramesh Sharma (Patient)</div>
-                <div className="text-slate-400 text-xs">Facilitated by Sister Anjali (ANM, PHC Khed)</div>
-              </div>
+              )}
             </div>
 
-            {/* Doctor PIP Mini-feed with real camera */}
+            {/* Doctor PIP Mini-feed with local camera */}
             <div className="absolute right-4 bottom-18 w-36 aspect-video rounded-xl bg-slate-900 border border-slate-700 overflow-hidden shadow-lg flex items-center justify-center">
-              {permissionStatus === 'granted' && isCameraOn ? (
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover transform -scale-x-100"
-                />
-              ) : isCameraOn ? (
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full object-cover transform -scale-x-100 ${isCameraOn && !isLowBandwidthMode ? 'block' : 'hidden'}`}
+              />
+
+              {(!isCameraOn || isLowBandwidthMode) && (
                 <div className="text-center text-[10px] text-white p-1">
                   <div className="font-bold">Dr. Ananya Mehta</div>
                   <div className="text-emerald-400">Cardiology OPD 104</div>
-                </div>
-              ) : (
-                <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                  <VideoOff className="w-3.5 h-3.5 text-rose-400" />
-                  <span>Video Off</span>
+                  <div className="text-[9px] text-rose-400">Camera Off</div>
                 </div>
               )}
             </div>
@@ -143,7 +163,7 @@ export const DoctorTeleconsultPage: React.FC = () => {
               <button
                 type="button"
                 onClick={toggleMic}
-                className={`p-3 rounded-full transition-colors ${
+                className={`p-3 rounded-full transition-colors cursor-pointer ${
                   isMicOn ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-rose-600 text-white'
                 }`}
                 aria-label={isMicOn ? 'Mute Mic' : 'Unmute Mic'}
@@ -155,7 +175,7 @@ export const DoctorTeleconsultPage: React.FC = () => {
               <button
                 type="button"
                 onClick={toggleCamera}
-                className={`p-3 rounded-full transition-colors ${
+                className={`p-3 rounded-full transition-colors cursor-pointer ${
                   isCameraOn ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-rose-600 text-white'
                 }`}
                 aria-label={isCameraOn ? 'Turn Off Camera' : 'Turn On Camera'}
@@ -167,7 +187,7 @@ export const DoctorTeleconsultPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleEndCall}
-                className="px-5 py-3 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-2 transition-colors shadow-lg"
+                className="px-5 py-3 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-2 transition-colors shadow-lg cursor-pointer"
                 aria-label="End Teleconsultation"
               >
                 <PhoneOff className="w-4 h-4" />

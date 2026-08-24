@@ -11,11 +11,10 @@ import {
   Signal,
   X,
   FileText,
-  AlertCircle,
 } from 'lucide-react';
 import type { Teleconsultation, FollowUp } from '../../types/patient';
 import { StatusBadge } from './StatusBadge';
-import { useMediaDevices } from '../../hooks/useMediaDevices';
+import { useWebRTC } from '../../hooks/useWebRTC';
 import { useTranslation } from '../../lib/i18n/useTranslation';
 
 export const TeleconsultationCard: React.FC<{ teleconsult: Teleconsultation }> = ({ teleconsult }) => {
@@ -97,27 +96,28 @@ export const TeleconsultRoomMock: React.FC<{
   onClose: () => void;
 }> = ({ teleconsult, onClose }) => {
   const t = useTranslation();
-  const [lowBandwidthMode, setLowBandwidthMode] = useState(false);
-  const [callDuration, setCallDuration] = useState(45);
-
   const {
-    permissionStatus,
-    videoRef,
+    connectionState,
+    localVideoRef,
+    remoteVideoRef,
     isCameraOn,
     isMicOn,
+    isRemoteVideoActive,
+    isLowBandwidthMode,
+    callDuration,
     errorMessage,
     toggleCamera,
     toggleMic,
-    stopMedia,
-  } = useMediaDevices(true);
-
-  React.useEffect(() => {
-    const timer = setInterval(() => setCallDuration((c) => c + 1), 1000);
-    return () => clearInterval(timer);
-  }, []);
+    toggleLowBandwidth,
+    endCall,
+  } = useWebRTC({
+    sessionId: teleconsult.id || 'tele-001',
+    role: 'patient',
+    autoStart: true,
+  });
 
   const handleEndCall = () => {
-    stopMedia();
+    endCall();
     onClose();
   };
 
@@ -134,8 +134,10 @@ export const TeleconsultRoomMock: React.FC<{
         <div className="px-5 py-3.5 bg-[#051818] border-b border-[#087F6D]/30 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
-              <span className="text-xs font-bold tracking-wider uppercase text-emerald-400">{t.liveConsultation}</span>
+              <span className={`w-2.5 h-2.5 rounded-full ${connectionState === 'connected' ? 'bg-emerald-400 animate-ping' : 'bg-amber-400 animate-pulse'}`}></span>
+              <span className="text-xs font-bold tracking-wider uppercase text-emerald-400">
+                {connectionState === 'connected' ? t.liveConsultation : connectionState === 'connecting' ? 'Connecting to Doctor…' : connectionState === 'signaling' ? 'Establishing P2P Link…' : t.liveConsultation}
+              </span>
             </div>
             <span className="text-xs text-[#A7D9CE] font-mono">({formatTimer(callDuration)})</span>
           </div>
@@ -143,12 +145,12 @@ export const TeleconsultRoomMock: React.FC<{
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#087F6D]/30 text-xs text-[#4FD1C5] border border-[#087F6D]/40">
               <Signal className="w-3.5 h-3.5" />
-              <span>{lowBandwidthMode ? t.audio2gMode : t.hdVideoActive}</span>
+              <span>{isLowBandwidthMode ? t.audio2gMode : connectionState === 'connected' ? 'WebRTC P2P (Live)' : t.hdVideoActive}</span>
             </div>
             <button
               type="button"
               onClick={handleEndCall}
-              className="p-1 rounded-lg text-[#A7D9CE] hover:text-white"
+              className="p-1 rounded-lg text-[#A7D9CE] hover:text-white cursor-pointer"
               aria-label={t.endConsultation}
             >
               <X className="w-5 h-5" />
@@ -160,7 +162,16 @@ export const TeleconsultRoomMock: React.FC<{
         <div className="flex-1 p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-[#051818] min-h-0">
           {/* Main Remote Feed (Doctor) */}
           <div className="md:col-span-2 relative rounded-2xl bg-[#092B2B] border border-[#087F6D]/30 overflow-hidden flex items-center justify-center">
-            {lowBandwidthMode ? (
+            {/* Live remote video element */}
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              className={`w-full h-full object-cover ${isRemoteVideoActive && !isLowBandwidthMode ? 'block' : 'hidden'}`}
+            />
+
+            {/* Doctor placeholder when remote video is not yet transmitting or in low bandwidth mode */}
+            {(!isRemoteVideoActive || isLowBandwidthMode) && (
               <div className="text-center p-6 space-y-3">
                 <div className="w-20 h-20 rounded-full bg-[#087F6D] text-white font-bold text-2xl flex items-center justify-center mx-auto shadow-lg">
                   AM
@@ -170,17 +181,7 @@ export const TeleconsultRoomMock: React.FC<{
                   <p className="text-xs text-[#A7D9CE]">{teleconsult.speciality}</p>
                 </div>
                 <div className="inline-block px-3 py-1 rounded-full bg-emerald-950/60 text-emerald-300 text-[11px] font-semibold border border-emerald-800">
-                  🎙️ {t.audio2gMode}
-                </div>
-              </div>
-            ) : (
-              <div className="relative w-full h-full flex flex-col items-center justify-center bg-gradient-to-t from-black/80 via-transparent to-black/30">
-                <div className="w-24 h-24 rounded-full bg-[#087F6D]/60 border-2 border-[#4FD1C5] flex items-center justify-center text-3xl font-bold">
-                  👨‍⚕️
-                </div>
-                <div className="absolute bottom-4 left-4 text-left">
-                  <div className="font-bold text-sm">{teleconsult.doctorName}</div>
-                  <div className="text-xs text-[#A7D9CE]">{teleconsult.hospital}</div>
+                  {isLowBandwidthMode ? `🎙️ ${t.audio2gMode}` : '👨‍⚕️ Doctor Connected via WebRTC'}
                 </div>
               </div>
             )}
@@ -189,36 +190,24 @@ export const TeleconsultRoomMock: React.FC<{
           {/* Side: Patient Real Self Video Feed */}
           <div className="space-y-3 flex flex-col min-h-0">
             <div className="h-44 rounded-2xl bg-[#092B2B] border border-[#087F6D]/30 relative overflow-hidden flex items-center justify-center">
-              {permissionStatus === 'granted' && isCameraOn ? (
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover transform -scale-x-100"
-                />
-              ) : permissionStatus === 'requesting' ? (
-                <div className="text-center p-3">
-                  <span className="text-xs text-[#4FD1C5] font-semibold animate-pulse">
-                    {t.pleaseWait}
-                  </span>
-                </div>
-              ) : permissionStatus === 'denied' ? (
-                <div className="text-center p-3 text-rose-300 text-[11px] space-y-1">
-                  <AlertCircle className="w-5 h-5 mx-auto text-rose-400" />
-                  <div className="font-bold">{t.cameraDenied}</div>
-                  <p className="text-[10px] text-slate-300">{t.allowCameraSettings}</p>
-                </div>
-              ) : (
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full object-cover transform -scale-x-100 ${isCameraOn && !isLowBandwidthMode ? 'block' : 'hidden'}`}
+              />
+
+              {(!isCameraOn || isLowBandwidthMode) && (
                 <div className="text-xs text-[#A7D9CE] flex flex-col items-center gap-1">
                   <VideoOff className="w-5 h-5 text-rose-400" />
-                  <span>Camera Off</span>
+                  <span>{isLowBandwidthMode ? 'Camera Off (2G Mode)' : 'Camera Off'}</span>
                 </div>
               )}
 
               {/* Patient Name Badge Overlay */}
               <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-black/60 text-[10px] text-white backdrop-blur-xs flex items-center gap-1">
-                <span>Ramesh Sharma</span>
+                <span>Self Preview</span>
                 {!isMicOn && <MicOff className="w-3 h-3 text-rose-400" />}
               </div>
             </div>
@@ -244,14 +233,14 @@ export const TeleconsultRoomMock: React.FC<{
         <div className="p-4 bg-[#051818] border-t border-[#087F6D]/30 flex flex-wrap items-center justify-between gap-3">
           <button
             type="button"
-            onClick={() => setLowBandwidthMode(!lowBandwidthMode)}
-            className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all ${
-              lowBandwidthMode
+            onClick={toggleLowBandwidth}
+            className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+              isLowBandwidthMode
                 ? 'bg-[#087F6D] border-[#4FD1C5] text-white'
                 : 'border-[#087F6D]/40 text-[#A7D9CE] hover:text-white'
             }`}
           >
-            {lowBandwidthMode ? `✓ ${t.audio2gMode}` : t.lowBandwidthExplainTitle}
+            {isLowBandwidthMode ? `✓ ${t.audio2gMode}` : t.lowBandwidthExplainTitle}
           </button>
 
           <div className="flex items-center gap-3">
@@ -292,7 +281,7 @@ export const TeleconsultRoomMock: React.FC<{
             {errorMessage ? (
               <span className="text-amber-300 font-semibold">{errorMessage}</span>
             ) : (
-              <span>WebRTC Tele-Node Connected</span>
+              <span>WebRTC Peer-to-Peer Protocol Active</span>
             )}
           </div>
         </div>

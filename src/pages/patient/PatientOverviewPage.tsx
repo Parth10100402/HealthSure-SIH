@@ -56,21 +56,22 @@ export const PatientOverviewPage: React.FC = () => {
     <div className="space-y-6 max-w-6xl mx-auto animate-in fade-in duration-200">
       {/* ── A. WELCOME / PATIENT SUMMARY ───────────────────────────────────── */}
       <section
-        className="rounded-2xl bg-gradient-to-r from-[#073B3A] via-[#094840] to-[#0D5950] text-white p-5 sm:p-6 shadow-xs"
+        className="rounded-2xl bg-gradient-to-r from-[#073B3A] via-[#094840] to-[#0D5950] text-white p-5 sm:p-6 shadow-md"
         aria-label="Patient Summary"
       >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-white/15 text-white text-xs font-semibold backdrop-blur-xs">
-              <ShieldCheck className="w-3.5 h-3.5 text-[#4FD1C5]" />
-              <span>{t.idLabel}: {mockPatientProfile.id} • {mockPatientProfile.registeredFacility}</span>
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 text-white text-xs font-bold backdrop-blur-xs">
+              <ShieldCheck className="w-4 h-4 text-[#4FD1C5]" />
+              <span>{t.idLabel}: {(user as any)?.patientId || user?.id || mockPatientProfile.id} • {(user as any)?.village || mockPatientProfile.registeredFacility}</span>
             </div>
 
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
-              {t.welcomeBack} {patientName.split(' ')[0]}
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex flex-wrap items-center gap-2 drop-shadow-xs">
+              <span className="text-[#A7D9CE] font-semibold">{t.welcomeBack}</span>
+              <span className="text-white font-black">{patientName}</span>
             </h1>
 
-            <p className="text-xs sm:text-sm text-[#A7D9CE]">
+            <p className="text-xs sm:text-sm text-[#D1E8E2] max-w-xl font-medium">
               {t.patientSubtitle}
             </p>
           </div>
@@ -79,9 +80,9 @@ export const PatientOverviewPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setVoiceModalOpen(true)}
-            className="inline-flex items-center gap-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 px-3.5 py-2 text-xs font-medium text-white transition-colors self-start md:self-auto shrink-0 cursor-pointer"
+            className="inline-flex items-center gap-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/30 px-4 py-2.5 text-xs font-bold text-white transition-colors self-start md:self-auto shrink-0 cursor-pointer shadow-xs"
           >
-            <PhoneCall className="w-3.5 h-3.5 text-[#4FD1C5]" />
+            <PhoneCall className="w-4 h-4 text-[#4FD1C5]" />
             <span>Interactive IVR Simulator: <strong>{HEALTHSURE_IVR_NUMBER}</strong></span>
           </button>
         </div>

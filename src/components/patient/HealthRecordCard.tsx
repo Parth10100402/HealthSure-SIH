@@ -11,8 +11,11 @@ import {
 } from 'lucide-react';
 import type { HealthRecord } from '../../types/patient';
 import { useTranslation } from '../../lib/i18n/useTranslation';
+import { useAuth } from '../../context/AuthContext';
+import { downloadHealthRecordPDF } from '../../utils/pdfGenerator';
 
 export const HealthRecordCard: React.FC<{ record: HealthRecord }> = ({ record }) => {
+  const { user } = useAuth();
   const t = useTranslation();
   const [detailsOpen, setDetailsOpen] = useState(false);
 
@@ -200,8 +203,8 @@ export const HealthRecordCard: React.FC<{ record: HealthRecord }> = ({ record })
             <div className="flex items-center justify-between gap-3 pt-3 border-t border-[#DDE8E4] dark:border-[#1A3A3A]">
               <button
                 type="button"
-                onClick={() => alert(t.downloadPdf)}
-                className="px-4 py-2 rounded-xl border border-[#087F6D] text-[#087F6D] dark:text-[#4FD1C5] font-semibold text-xs flex items-center gap-1.5"
+                onClick={() => downloadHealthRecordPDF(record, user)}
+                className="px-4 py-2 rounded-xl border border-[#087F6D] text-[#087F6D] dark:text-[#4FD1C5] font-semibold text-xs flex items-center gap-1.5 hover:bg-[#EAF7F2] dark:hover:bg-[#073B3A]/30 transition-colors cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>{t.downloadPdf}</span>
@@ -209,7 +212,7 @@ export const HealthRecordCard: React.FC<{ record: HealthRecord }> = ({ record })
               <button
                 type="button"
                 onClick={() => setDetailsOpen(false)}
-                className="px-5 py-2 rounded-xl bg-[#087F6D] hover:bg-[#073B3A] text-white text-xs font-bold"
+                className="px-5 py-2 rounded-xl bg-[#087F6D] hover:bg-[#073B3A] text-white text-xs font-bold transition-colors cursor-pointer"
               >
                 {t.closeBtn}
               </button>

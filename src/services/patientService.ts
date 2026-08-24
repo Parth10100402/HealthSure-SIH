@@ -91,7 +91,7 @@ export const patientService = {
       const res = await fetch(`${API_BASE_URL}/appointments`, { headers: getAuthHeaders() });
       if (res.ok) {
         const json = await res.json();
-        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        if (json.success && Array.isArray(json.data)) {
           return json.data.map((a: any) => ({
             id: a.appointmentId || a.id,
             doctorName: a.doctorName || 'Dr. Specialist',
@@ -290,7 +290,7 @@ export const patientService = {
       const res = await fetch(`${API_BASE_URL}/health-records`, { headers: getAuthHeaders() });
       if (res.ok) {
         const json = await res.json();
-        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        if (json.success && Array.isArray(json.data)) {
           return json.data.map((r: any) => ({
             id: r.id,
             date: r.date,
@@ -321,7 +321,7 @@ export const patientService = {
       const res = await fetch(`${API_BASE_URL}/referrals`, { headers: getAuthHeaders() });
       if (res.ok) {
         const json = await res.json();
-        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        if (json.success && Array.isArray(json.data)) {
           return json.data.map((r: any) => ({
             ...mockReferral,
             id: r.referralId || r.id,
@@ -382,7 +382,7 @@ export const patientService = {
       const res = await fetch(`${API_BASE_URL}/teleconsultations`, { headers: getAuthHeaders() });
       if (res.ok) {
         const json = await res.json();
-        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        if (json.success && Array.isArray(json.data)) {
           return json.data.map((t: any) => ({
             id: t.id,
             doctorName: t.doctorName || 'Dr. Ananya Mehta',
@@ -411,7 +411,7 @@ export const patientService = {
       const res = await fetch(`${API_BASE_URL}/followups`, { headers: getAuthHeaders() });
       if (res.ok) {
         const json = await res.json();
-        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        if (json.success && Array.isArray(json.data)) {
           return json.data.map((f: any) => ({
             id: f.id,
             doctorName: f.doctorName || 'Dr. Ananya Mehta',

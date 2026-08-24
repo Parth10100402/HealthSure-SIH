@@ -60,6 +60,88 @@ export const getTeleconsultById = async (req: Request, res: Response, next: Next
   }
 };
 
+// ── WebRTC In-Memory Signaling Mailbox ──────────────────────────────────────
+interface SignalingMessage {
+  id: string;
+  senderRole: 'patient' | 'doctor';
+  type: 'offer' | 'answer' | 'candidate' | 'status' | 'leave';
+  payload: any;
+  timestamp: number;
+}
+
+const signalingStore = new Map<string, SignalingMessage[]>();
+
+export const sendSignal = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = String(req.params.id);
+    const { senderRole, type, payload } = req.body;
+
+    if (!senderRole || !type) {
+      res.status(400).json({ success: false, message: 'Missing senderRole or type in signaling message.' });
+      return;
+    }
+
+    const messages = signalingStore.get(id) || [];
+    const newMsg: SignalingMessage = {
+      id: `sig-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      senderRole,
+      type,
+      payload,
+      timestamp: Date.now(),
+    };
+
+    // Clean messages older than 5 minutes
+    const now = Date.now();
+    const fresh = messages.filter((m) => now - m.timestamp < 300000);
+    fresh.push(newMsg);
+    signalingStore.set(id, fresh);
+
+    res.json({
+      success: true,
+      data: { messageId: newMsg.id, timestamp: newMsg.timestamp },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getSignals = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = String(req.params.id);
+    const role = (req.query.role as string) || '';
+    const since = parseInt((req.query.since as string) || '0', 10);
+
+    const messages = signalingStore.get(id) || [];
+    // Deliver messages sent by the other role since the given timestamp
+    const pending = messages.filter((m) => {
+      const matchRole = !role || m.senderRole !== role;
+      const matchTime = m.timestamp > since;
+      return matchRole && matchTime;
+    });
+
+    res.json({
+      success: true,
+      data: pending,
+      timestamp: Date.now(),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const clearSignals = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = String(req.params.id);
+    signalingStore.delete(id);
+    res.json({
+      success: true,
+      message: 'Signaling session reset.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const patchTeleconsult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
@@ -86,3 +168,6 @@ export const patchTeleconsult = async (req: Request, res: Response, next: NextFu
     next(error);
   }
 };
+
+
+

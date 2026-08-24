@@ -1,6 +1,3 @@
-// HealthSure — Doctor Patient Longitudinal Record View
-// frontend/src/pages/doctor/DoctorRecordsPage.tsx
-
 import React, { useState, useEffect } from 'react';
 import {
   Activity,
@@ -9,6 +6,7 @@ import {
 import { mockPatientProfile } from '../../data/patientMockData';
 import { doctorService } from '../../services/doctorService';
 import type { HealthRecord } from '../../types/patient';
+import { downloadHealthRecordPDF } from '../../utils/pdfGenerator';
 
 export const DoctorRecordsPage: React.FC = () => {
   const [records, setRecords] = useState<HealthRecord[]>([]);
@@ -18,6 +16,20 @@ export const DoctorRecordsPage: React.FC = () => {
       setRecords(data.records);
     });
   }, []);
+
+  const handleExportPDF = () => {
+    const rec = records[0] || {
+      id: 'HS-REC-DOC-001',
+      date: new Date().toISOString().split('T')[0],
+      facility: 'District Hospital Ratnagiri',
+      doctorName: 'Dr. Ananya Mehta, MD',
+      speciality: 'Cardiology',
+      diagnosis: 'Hypertension & Angina Follow-up',
+      summary: 'Patient reports reduced symptoms on Amlodipine 5mg. Advised 2D-Echo in 3 months.',
+      recordType: 'consultation',
+    };
+    downloadHealthRecordPDF(rec, mockPatientProfile);
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
@@ -34,8 +46,8 @@ export const DoctorRecordsPage: React.FC = () => {
 
         <button
           type="button"
-          onClick={() => alert('Downloading verified clinical summary as PDF...')}
-          className="inline-flex items-center gap-2 rounded-xl border border-[#087F6D] text-[#087F6D] dark:text-[#4FD1C5] hover:bg-[#EAF7F2] text-xs font-semibold px-4 py-2.5 transition-colors self-start sm:self-auto"
+          onClick={handleExportPDF}
+          className="inline-flex items-center gap-2 rounded-xl border border-[#087F6D] text-[#087F6D] dark:text-[#4FD1C5] hover:bg-[#EAF7F2] text-xs font-semibold px-4 py-2.5 transition-colors self-start sm:self-auto cursor-pointer"
         >
           <Download className="w-4 h-4" />
           <span>Export Clinical Summary</span>
