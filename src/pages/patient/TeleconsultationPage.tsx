@@ -28,12 +28,22 @@ export const TeleconsultationPage: React.FC = () => {
 
   const isUpcoming = (status: string) => {
     const s = (status || '').toLowerCase();
-    return s === 'upcoming' || s === 'scheduled' || s === 'waiting' || s === 'in_consultation' || s === 'confirmed';
+    return (
+      s === 'upcoming' ||
+      s === 'scheduled' ||
+      s === 'waiting' ||
+      s === 'waiting_for_doctor' ||
+      s === 'waiting_for_patient' ||
+      s === 'connecting' ||
+      s === 'live' ||
+      s === 'in_consultation' ||
+      s === 'confirmed'
+    );
   };
 
   const isCompleted = (status: string) => {
     const s = (status || '').toLowerCase();
-    return s === 'completed' || s === 'cancelled';
+    return s === 'completed' || s === 'ended' || s === 'cancelled';
   };
 
   const filtered = teleconsults.filter((item) =>

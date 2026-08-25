@@ -1,5 +1,5 @@
 import type { UserEntity, PatientEntity, DoctorEntity, FacilityEntity, AppointmentEntity, SpecialistOutreachEntity, ReferralEntity, HealthRecordEntity, FollowUpEntity, DiagnosticServiceEntity, DiagnosticReportEntity, TeleconsultationEntity, NotificationEntity, OtpSessionEntity } from '../types/index.js';
-declare class DataStore {
+export declare class DataStore {
     users: UserEntity[];
     patients: PatientEntity[];
     doctors: DoctorEntity[];
@@ -30,4 +30,3 @@ declare class DataStore {
     markOtpSessionUsed(mobile: string): void;
 }
 export declare const dataStore: DataStore;
-export {};

@@ -20,10 +20,32 @@ export const DoctorTeleconsultPage: React.FC = () => {
   const sessionId = searchParams.get('id') || 'tele-001';
 
   const [hasJoinedCall, setHasJoinedCall] = useState<boolean>(false);
+  const [isPatientInRoom, setIsPatientInRoom] = useState<boolean>(false);
   const [liveNotes, setLiveNotes] = useState(
     'Patient reports reduced exertional breathlessness with current medication. Compliant with diet. Advised follow-up 2D-Echo.'
   );
   const [notesSynced, setNotesSynced] = useState(false);
+
+  React.useEffect(() => {
+    let mounted = true;
+    const checkPresence = async () => {
+      try {
+        const res = await fetch(`/api/teleconsultations/${sessionId}/session`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data && mounted) {
+            setIsPatientInRoom(json.data.patientJoined);
+          }
+        }
+      } catch {}
+    };
+    checkPresence();
+    const interval = setInterval(checkPresence, 3000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [sessionId]);
 
   const {
     connectionState,
@@ -103,8 +125,8 @@ export const DoctorTeleconsultPage: React.FC = () => {
                 {connectionState === 'connected'
                   ? 'LIVE TELECONSULTATION SESSION (WebRTC P2P)'
                   : hasJoinedCall
-                  ? 'CONNECTING TO PATIENT…'
-                  : 'PRE-CALL WAITING ROOM'}
+                  ? (isPatientInRoom ? 'PATIENT JOINED — CONNECTING…' : 'CONNECTING TO PATIENT…')
+                  : (isPatientInRoom ? 'PATIENT WAITING IN ROOM' : 'PRE-CALL WAITING ROOM')}
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
@@ -139,7 +161,7 @@ export const DoctorTeleconsultPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <span className="text-emerald-400 font-bold">P2P Peer: {connectionState}</span>
           <span>•</span>
-          <span>ICE: {iceConnectionState}</span>
+          <span>ICE: {iceConnectionState} (H:{candidateStats.host} S:{candidateStats.srflx} R:{candidateStats.relay})</span>
           <span>•</span>
           <span>Sig: {signalingState}</span>
           <span>•</span>
@@ -164,10 +186,16 @@ export const DoctorTeleconsultPage: React.FC = () => {
           <div>
             <h2 className="text-xl font-bold text-white">Dr. Ananya Mehta</h2>
             <p className="text-sm text-emerald-400 font-semibold">Cardiology Specialist • District Hospital Ratnagiri</p>
-            <div className="mt-3 p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 space-y-1">
+            <div className="mt-3 p-3.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 space-y-2">
               <p className="font-bold text-white">Teleconsultation Ready:</p>
               <p>Patient: <strong className="text-emerald-300">Parth Sharma</strong> (ABHA: 91-4589-2041-8890)</p>
               <p>PHC Sub-Centre: Khed Rural Health Kiosk (Token: HS-TKN-102)</p>
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${isPatientInRoom ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
+                <span className={`font-bold text-xs ${isPatientInRoom ? 'text-emerald-300' : 'text-amber-300'}`}>
+                  {isPatientInRoom ? '🟢 Patient is waiting in room — Ready to connect' : '🟡 Waiting for Patient to enter room…'}
+                </span>
+              </div>
             </div>
           </div>
 

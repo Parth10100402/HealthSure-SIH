@@ -1,4 +1,4 @@
-// HealthSure — Rebuilt Serverless-Safe Teleconsultation Controller
+// HealthSure — Production Teleconsultation & Signaling Controller
 // backend/src/controllers/teleconsultController.ts
 
 import type { Request, Response, NextFunction } from 'express';
@@ -6,11 +6,11 @@ import { dataStore } from '../db/store.js';
 import { getPrisma } from '../db/prisma.js';
 
 // ── WebRTC Signaling Message Interface ──────────────────────────────────────
-interface SignalingMessage {
+export interface SignalingMessage {
   id: string;
   sessionId: string;
   senderRole: 'patient' | 'doctor';
-  type: 'offer' | 'answer' | 'candidate' | 'presence' | 'leave';
+  type: 'offer' | 'answer' | 'candidate' | 'ice' | 'presence' | 'live' | 'leave';
   payload: any;
   timestamp: number;
 }
@@ -19,15 +19,36 @@ interface SignalingMessage {
 const inMemorySignalingStore = new Map<string, SignalingMessage[]>();
 
 // Session presence tracking
-interface SessionPresence {
+export interface SessionPresence {
+  sessionId: string;
+  appointmentId?: string;
   patientJoined: boolean;
   doctorJoined: boolean;
   patientJoinedAt?: number;
   doctorJoinedAt?: number;
-  status: 'SCHEDULED' | 'WAITING_FOR_DOCTOR' | 'WAITING_FOR_PATIENT' | 'CONNECTING' | 'CONNECTED' | 'COMPLETED';
+  connectedAt?: number;
+  endedAt?: number;
+  status: 'UPCOMING' | 'WAITING_FOR_PATIENT' | 'WAITING_FOR_DOCTOR' | 'CONNECTING' | 'LIVE' | 'ENDED' | 'FAILED';
+  durationSeconds: number;
 }
 
 const sessionPresenceStore = new Map<string, SessionPresence>();
+
+/**
+ * Resolves appointment ID, teleconsultation ID, or token to canonical session ID ('tele-001')
+ */
+export function resolveCanonicalSessionId(id: string): string {
+  if (!id) return 'tele-001';
+  const clean = String(id).trim();
+  const tele = dataStore.teleconsultations.find(
+    (t) => t.id === clean || t.appointmentId === clean || `tele-${t.appointmentId}` === clean
+  );
+  if (tele) return tele.id;
+  if (clean === 'apt-001' || clean === 'apt1' || clean === 'HS-APT-1001' || clean === 'tele-001' || clean === 'HS-APT-3012') {
+    return 'tele-001';
+  }
+  return clean;
+}
 
 export const getTeleconsultations = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -43,22 +64,24 @@ export const getTeleconsultations = async (req: Request, res: Response, next: Ne
 
     // Enrich with appointment date/time, presence, and names
     const enriched = list.map((t) => {
-      const apt = dataStore.appointments.find((a) => a.id === t.appointmentId);
+      const apt = dataStore.appointments.find((a) => a.id === t.appointmentId || a.appointmentId === t.appointmentId);
       const doc = dataStore.doctors.find((d) => d.id === t.doctorId);
       const pat = dataStore.patients.find((p) => p.id === t.patientId);
       const hosp = doc ? dataStore.facilities.find((f) => f.id === doc.hospitalId) : null;
       const presence = sessionPresenceStore.get(t.id);
 
+      let sessionStatus = presence ? presence.status : (t.status || 'UPCOMING');
+
       return {
         ...t,
-        status: presence ? presence.status : t.status,
+        status: sessionStatus,
         patientJoined: presence ? presence.patientJoined : false,
         doctorJoined: presence ? presence.doctorJoined : false,
         date: apt ? apt.date : '2026-08-28',
         time: apt ? apt.startTime : '10:30 AM',
         doctorName: doc ? doc.name : 'Dr. Ananya Mehta',
         speciality: doc ? doc.speciality : 'Cardiology',
-        hospital: hosp ? hosp.name : 'District Hospital Ratnagiri',
+        hospital: hosp ? hosp.name : 'District Hospital Ratnagiri Telemedicine Node',
         patientName: pat ? pat.fullName : 'Parth Sharma',
         instructions:
           'Connect 5 mins prior. Keep previous ECG & Prescription ready. If 2G mode activates, video will switch to audio priority.',
@@ -76,7 +99,8 @@ export const getTeleconsultations = async (req: Request, res: Response, next: Ne
 
 export const getTeleconsultById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { id } = req.params;
+    const rawId = String(req.params.id);
+    const id = resolveCanonicalSessionId(rawId);
     const t = dataStore.teleconsultations.find((item) => item.id === id || item.appointmentId === id);
 
     if (!t) {
@@ -84,7 +108,7 @@ export const getTeleconsultById = async (req: Request, res: Response, next: Next
       return;
     }
 
-    const apt = dataStore.appointments.find((a) => a.id === t.appointmentId);
+    const apt = dataStore.appointments.find((a) => a.id === t.appointmentId || a.appointmentId === t.appointmentId);
     const doc = dataStore.doctors.find((d) => d.id === t.doctorId);
     const pat = dataStore.patients.find((p) => p.id === t.patientId);
     const hosp = doc ? dataStore.facilities.find((f) => f.id === doc.hospitalId) : null;
@@ -94,14 +118,14 @@ export const getTeleconsultById = async (req: Request, res: Response, next: Next
       success: true,
       data: {
         ...t,
-        status: presence ? presence.status : t.status,
+        status: presence ? presence.status : (t.status || 'UPCOMING'),
         patientJoined: presence ? presence.patientJoined : false,
         doctorJoined: presence ? presence.doctorJoined : false,
         date: apt ? apt.date : '2026-08-28',
         time: apt ? apt.startTime : '10:30 AM',
         doctorName: doc ? doc.name : 'Dr. Ananya Mehta',
         speciality: doc ? doc.speciality : 'Cardiology',
-        hospital: hosp ? hosp.name : 'District Hospital Ratnagiri',
+        hospital: hosp ? hosp.name : 'District Hospital Ratnagiri Telemedicine Node',
         patientName: pat ? pat.fullName : 'Parth Sharma',
         instructions:
           'Connect 5 mins prior. Keep previous ECG & Prescription ready. If 2G mode activates, video will switch to audio priority.',
@@ -114,7 +138,8 @@ export const getTeleconsultById = async (req: Request, res: Response, next: Next
 
 export const getTeleconsultSession = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = String(req.params.id);
+    const rawId = String(req.params.id);
+    const id = resolveCanonicalSessionId(rawId);
     let presence = sessionPresenceStore.get(id);
 
     // If local memory is empty or cold, synchronize presence from cloud relay
@@ -132,10 +157,22 @@ export const getTeleconsultSession = async (req: Request, res: Response, next: N
                 const msg: SignalingMessage = JSON.parse(event.message);
                 if (msg && msg.type === 'presence' && msg.payload) {
                   if (!presence) {
-                    presence = { patientJoined: false, doctorJoined: false, status: 'SCHEDULED' };
+                    presence = {
+                      sessionId: id,
+                      patientJoined: false,
+                      doctorJoined: false,
+                      status: 'UPCOMING',
+                      durationSeconds: 0,
+                    };
                   }
-                  if (msg.payload.role === 'patient') presence.patientJoined = true;
-                  if (msg.payload.role === 'doctor') presence.doctorJoined = true;
+                  if (msg.payload.role === 'patient') {
+                    presence.patientJoined = true;
+                    presence.patientJoinedAt = msg.timestamp;
+                  }
+                  if (msg.payload.role === 'doctor') {
+                    presence.doctorJoined = true;
+                    presence.doctorJoinedAt = msg.timestamp;
+                  }
                   if (presence.patientJoined && presence.doctorJoined) presence.status = 'CONNECTING';
                   else if (presence.patientJoined) presence.status = 'WAITING_FOR_DOCTOR';
                   else if (presence.doctorJoined) presence.status = 'WAITING_FOR_PATIENT';
@@ -150,9 +187,11 @@ export const getTeleconsultSession = async (req: Request, res: Response, next: N
 
     if (!presence) {
       presence = {
+        sessionId: id,
         patientJoined: false,
         doctorJoined: false,
-        status: 'SCHEDULED',
+        status: 'UPCOMING',
+        durationSeconds: 0,
       };
     }
 
@@ -162,9 +201,14 @@ export const getTeleconsultSession = async (req: Request, res: Response, next: N
       success: true,
       data: {
         sessionId: id,
+        appointmentId: tele ? tele.appointmentId : 'apt-001',
         status: presence.status,
         patientJoined: presence.patientJoined,
         doctorJoined: presence.doctorJoined,
+        patientJoinedAt: presence.patientJoinedAt,
+        doctorJoinedAt: presence.doctorJoinedAt,
+        connectedAt: presence.connectedAt,
+        endedAt: presence.endedAt,
         durationSeconds: tele ? tele.durationSeconds : 0,
         networkMode: tele ? tele.networkMode : 'ADAPTIVE_2G_AUDIO',
       },
@@ -176,25 +220,29 @@ export const getTeleconsultSession = async (req: Request, res: Response, next: N
 
 export const joinTeleconsult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = String(req.params.id);
+    const rawId = String(req.params.id);
+    const id = resolveCanonicalSessionId(rawId);
     const { role } = req.body; // 'patient' | 'doctor'
 
     let presence = sessionPresenceStore.get(id);
     if (!presence) {
       presence = {
+        sessionId: id,
         patientJoined: false,
         doctorJoined: false,
-        status: 'SCHEDULED',
+        status: 'UPCOMING',
+        durationSeconds: 0,
       };
       sessionPresenceStore.set(id, presence);
     }
 
+    const now = Date.now();
     if (role === 'patient') {
       presence.patientJoined = true;
-      presence.patientJoinedAt = Date.now();
+      presence.patientJoinedAt = now;
     } else if (role === 'doctor') {
       presence.doctorJoined = true;
-      presence.doctorJoinedAt = Date.now();
+      presence.doctorJoinedAt = now;
     }
 
     if (presence.patientJoined && presence.doctorJoined) {
@@ -205,15 +253,24 @@ export const joinTeleconsult = async (req: Request, res: Response, next: NextFun
       presence.status = 'WAITING_FOR_PATIENT';
     }
 
+    // Update in dataStore (never mark completed)
+    const tele = dataStore.teleconsultations.find((t) => t.id === id || t.appointmentId === id);
+    if (tele) {
+      tele.status = presence.status;
+      tele.patientJoined = presence.patientJoined;
+      tele.doctorJoined = presence.doctorJoined;
+      tele.patientJoinedAt = presence.patientJoinedAt;
+      tele.doctorJoinedAt = presence.doctorJoinedAt;
+    }
+
     // Broadcast presence signal
-    const timestamp = Date.now();
     const presenceMsg: SignalingMessage = {
-      id: `sig-${timestamp}-presence-${role}`,
+      id: `sig-${now}-presence-${role}`,
       sessionId: id,
       senderRole: role as any,
       type: 'presence',
-      payload: { role, status: presence.status },
-      timestamp,
+      payload: { role, status: presence.status, patientJoined: presence.patientJoined, doctorJoined: presence.doctorJoined },
+      timestamp: now,
     };
 
     // Update memory
@@ -240,24 +297,32 @@ export const joinTeleconsult = async (req: Request, res: Response, next: NextFun
 
 export const leaveTeleconsult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = String(req.params.id);
+    const rawId = String(req.params.id);
+    const id = resolveCanonicalSessionId(rawId);
     const { role } = req.body;
 
     let presence = sessionPresenceStore.get(id);
+    const now = Date.now();
     if (presence) {
       if (role === 'patient') presence.patientJoined = false;
       if (role === 'doctor') presence.doctorJoined = false;
-      presence.status = 'COMPLETED';
+      presence.status = 'ENDED';
+      presence.endedAt = now;
     }
 
-    const timestamp = Date.now();
+    const tele = dataStore.teleconsultations.find((t) => t.id === id || t.appointmentId === id);
+    if (tele) {
+      tele.status = 'ENDED';
+      tele.endedAt = new Date(now);
+    }
+
     const leaveMsg: SignalingMessage = {
-      id: `sig-${timestamp}-leave-${role}`,
+      id: `sig-${now}-leave-${role}`,
       sessionId: id,
       senderRole: role as any,
       type: 'leave',
       payload: { role },
-      timestamp,
+      timestamp: now,
     };
 
     // Relay via ntfy.sh
@@ -280,7 +345,8 @@ export const leaveTeleconsult = async (req: Request, res: Response, next: NextFu
 // ── WebRTC Serverless Multi-Tier Signaling Engine ───────────────────────────
 export const sendSignal = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = String(req.params.id);
+    const rawId = String(req.params.id);
+    const id = resolveCanonicalSessionId(rawId);
     const { senderRole, type, payload } = req.body;
 
     if (!senderRole || !type) {
@@ -291,16 +357,28 @@ export const sendSignal = async (req: Request, res: Response, next: NextFunction
     const timestamp = Date.now();
     const messageId = `sig-${timestamp}-${Math.random().toString(36).substring(2, 7)}`;
     
+    // Normalize type (e.g. 'ice' -> 'candidate')
+    const normalizedType = type === 'ice' ? 'candidate' : type;
+
     const newMsg: SignalingMessage = {
       id: messageId,
       sessionId: id,
       senderRole,
-      type,
+      type: normalizedType,
       payload,
       timestamp,
     };
 
-    console.log(`[Signal] POST sessionId=${id} senderRole=${senderRole} type=${type} id=${messageId}`);
+    console.log(`[Signal] POST sessionId=${id} senderRole=${senderRole} type=${normalizedType} id=${messageId}`);
+
+    // If signal is live or connected, update presence status
+    if (normalizedType === 'live') {
+      const presence = sessionPresenceStore.get(id);
+      if (presence) {
+        presence.status = 'LIVE';
+        if (!presence.connectedAt) presence.connectedAt = timestamp;
+      }
+    }
 
     // 1. In-process memory store
     const messages = inMemorySignalingStore.get(id) || [];
@@ -326,7 +404,7 @@ export const sendSignal = async (req: Request, res: Response, next: NextFunction
             id: messageId,
             sessionId: id,
             senderRole,
-            type,
+            type: normalizedType,
             payload: JSON.stringify(payload),
             timestamp: BigInt(timestamp),
           },
@@ -347,7 +425,8 @@ export const sendSignal = async (req: Request, res: Response, next: NextFunction
 
 export const getSignals = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = String(req.params.id);
+    const rawId = String(req.params.id);
+    const id = resolveCanonicalSessionId(rawId);
     const role = (req.query.role as string) || '';
     const since = parseInt((req.query.since as string) || '0', 10);
 
@@ -369,9 +448,8 @@ export const getSignals = async (req: Request, res: Response, next: NextFunction
             const event = JSON.parse(line);
             if (event.event === 'message' && event.message) {
               const msg: SignalingMessage = JSON.parse(event.message);
-              if (msg && msg.id && msg.sessionId === id) {
+              if (msg && msg.id && (msg.sessionId === id || msg.sessionId === rawId)) {
                 mergedMap.set(msg.id, msg);
-                // Also backfill local memory
                 if (!memoryMsgs.some((m) => m.id === msg.id)) {
                   memoryMsgs.push(msg);
                 }
@@ -438,7 +516,8 @@ export const getSignals = async (req: Request, res: Response, next: NextFunction
 
 export const clearSignals = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = String(req.params.id);
+    const rawId = String(req.params.id);
+    const id = resolveCanonicalSessionId(rawId);
     inMemorySignalingStore.delete(id);
     sessionPresenceStore.delete(id);
 
@@ -462,7 +541,8 @@ export const clearSignals = async (req: Request, res: Response, next: NextFuncti
 
 export const patchTeleconsult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { id } = req.params;
+    const rawId = String(req.params.id);
+    const id = resolveCanonicalSessionId(rawId);
     const { status, networkMode, clinicalNotes, durationSeconds } = req.body;
 
     const item = dataStore.teleconsultations.find((t) => t.id === id || t.appointmentId === id);

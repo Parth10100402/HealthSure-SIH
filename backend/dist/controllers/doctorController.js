@@ -32,6 +32,7 @@ export const getDoctorAppointments = async (req, res, next) => {
             const scheduledAt = a.scheduledAt || createUtcInstantFromIst(a.date, a.startTime);
             const displayTime = formatAppointmentTime(scheduledAt);
             const displayDate = formatAppointmentDate(scheduledAt);
+            const tele = dataStore.teleconsultations.find((t) => t.appointmentId === a.id || t.appointmentId === a.appointmentId || t.id === 'tele-001');
             return {
                 id: a.id,
                 appointmentId: a.appointmentId,
@@ -43,11 +44,13 @@ export const getDoctorAppointments = async (req, res, next) => {
                 time: displayTime,
                 startTime: displayTime,
                 date: displayDate,
+                mode: a.mode === 'TELECONSULTATION' ? 'teleconsultation' : 'in-person',
                 type: a.mode === 'TELECONSULTATION' ? 'Teleconsult' : 'In-Person OPD',
                 status: a.status.toLowerCase(),
                 tokenNumber: a.token || 'OPD-01',
                 reasonForVisit: a.reasonForVisit || 'Cardiology Review',
                 facility: fac?.name || 'PHC Khed',
+                teleconsultId: tele?.id || 'tele-001',
             };
         });
         res.json({

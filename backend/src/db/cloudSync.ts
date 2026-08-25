@@ -34,7 +34,7 @@ export async function syncCloudAppointments(store: DataStore): Promise<void> {
           if (apt && (apt.id || apt.appointmentId)) {
             // Check if already in store
             const exists = store.appointments.some(
-              (existing) =>
+              (existing: AppointmentEntity) =>
                 existing.id === apt.id ||
                 existing.appointmentId === apt.appointmentId ||
                 (apt.idempotencyKey && existing.idempotencyKey === apt.idempotencyKey)
@@ -46,7 +46,7 @@ export async function syncCloudAppointments(store: DataStore): Promise<void> {
               // Update outreach slot if applicable
               if (apt.outreachId) {
                 const outreach = store.outreachSchedules.find(
-                  (o) => o.id === apt.outreachId || o.outreachId === apt.outreachId
+                  (o: any) => o.id === apt.outreachId || o.outreachId === apt.outreachId
                 );
                 if (outreach && outreach.availableSlots > 0) {
                   outreach.availableSlots -= 1;

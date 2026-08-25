@@ -20,7 +20,7 @@ import type {
 } from '../types/index.js';
 import bcrypt from 'bcryptjs';
 
-class DataStore {
+export class DataStore {
   users: UserEntity[] = [];
   patients: PatientEntity[] = [];
   doctors: DoctorEntity[] = [];

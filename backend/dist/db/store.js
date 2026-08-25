@@ -1,6 +1,6 @@
 import { createUtcInstantFromIst } from '../utils/dateTime.js';
 import bcrypt from 'bcryptjs';
-class DataStore {
+export class DataStore {
     users = [];
     patients = [];
     doctors = [];

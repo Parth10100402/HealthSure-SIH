@@ -20,6 +20,34 @@ import { useTranslation } from '../../lib/i18n/useTranslation';
 export const TeleconsultationCard: React.FC<{ teleconsult: Teleconsultation }> = ({ teleconsult }) => {
   const t = useTranslation();
   const [roomOpen, setRoomOpen] = useState(false);
+  const [liveStatus, setLiveStatus] = useState<string>(teleconsult.status || 'upcoming');
+  const [doctorPresent, setDoctorPresent] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    let mounted = true;
+    const checkSession = async () => {
+      try {
+        const res = await fetch(`/api/teleconsultations/${teleconsult.id || 'tele-001'}/session`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data && mounted) {
+            setLiveStatus(json.data.status);
+            setDoctorPresent(json.data.doctorJoined);
+          }
+        }
+      } catch {}
+    };
+    checkSession();
+    const interval = setInterval(checkSession, 3000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [teleconsult.id]);
+
+  const isEnterable = ['upcoming', 'scheduled', 'waiting', 'waiting_for_doctor', 'waiting_for_patient', 'connecting', 'live', 'in_consultation', 'confirmed'].includes(
+    liveStatus.toLowerCase()
+  );
 
   return (
     <>
@@ -37,7 +65,7 @@ export const TeleconsultationCard: React.FC<{ teleconsult: Teleconsultation }> =
                 {teleconsult.hospital}
               </p>
             </div>
-            <StatusBadge status={teleconsult.status} />
+            <StatusBadge status={liveStatus} />
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-xs text-[#17324D] dark:text-[#D1E8E2]">
@@ -46,8 +74,10 @@ export const TeleconsultationCard: React.FC<{ teleconsult: Teleconsultation }> =
               <div className="font-bold">{teleconsult.date} • {teleconsult.time}</div>
             </div>
             <div className="bg-[#F5F9F7] dark:bg-[#0F2929] p-2.5 rounded-xl">
-              <div className="text-[10px] text-[#64748B] dark:text-[#7B9EA8]">{t.lowBandwidthExplainTitle}</div>
-              <div className="font-bold text-[#087F6D] dark:text-[#4FD1C5]">{t.audio2gMode}</div>
+              <div className="text-[10px] text-[#64748B] dark:text-[#7B9EA8]">Live Presence</div>
+              <div className={`font-bold ${doctorPresent ? 'text-emerald-500' : 'text-[#087F6D] dark:text-[#4FD1C5]'}`}>
+                {doctorPresent ? '🟢 Doctor in Room' : '🟡 ' + t.audio2gMode}
+              </div>
             </div>
           </div>
 
@@ -57,18 +87,20 @@ export const TeleconsultationCard: React.FC<{ teleconsult: Teleconsultation }> =
         </div>
 
         <div className="pt-2 border-t border-[#DDE8E4]/60 dark:border-[#1A3A3A] flex items-center gap-2">
-          {['upcoming', 'scheduled', 'waiting', 'in_consultation', 'confirmed'].includes((teleconsult.status || '').toLowerCase()) && (
+          {isEnterable && (
             <button
               type="button"
               onClick={() => setRoomOpen(true)}
-              className="w-full py-2.5 px-4 rounded-xl bg-[#087F6D] hover:bg-[#073B3A] text-white text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+              className={`w-full py-2.5 px-4 rounded-xl text-white text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer ${
+                doctorPresent ? 'bg-emerald-600 hover:bg-emerald-700 animate-pulse' : 'bg-[#087F6D] hover:bg-[#073B3A]'
+              }`}
             >
               <Video className="w-4 h-4" />
-              <span>{t.enterRoomBtn}</span>
+              <span>{doctorPresent ? 'Doctor Ready — Enter Video Room' : t.enterRoomBtn}</span>
             </button>
           )}
 
-          {(teleconsult.status || '').toLowerCase() === 'completed' && (
+          {['completed', 'ended'].includes(liveStatus.toLowerCase()) && (
             <button
               type="button"
               onClick={() => alert(`Teleconsultation ${teleconsult.id} completed. Digital prescription is stored in Health Records.`)}
@@ -136,14 +168,14 @@ export const TeleconsultRoomMock: React.FC<{
   };
 
   const getStatusText = () => {
-    if (connectionState === 'connected') return t.liveConsultation;
-    if (connectionState === 'connecting') return 'Connecting to Doctor…';
+    if (connectionState === 'connected') return 'LIVE CONSULTATION (WebRTC P2P)';
+    if (connectionState === 'connecting') return 'Doctor in Room — Connecting...';
     if (connectionState === 'signaling') {
       return peerJoined ? 'Doctor in Room — Establishing Link…' : 'Waiting for Doctor to join…';
     }
     if (connectionState === 'failed') return 'Connection Failed — Retry';
-    if (connectionState === 'ended') return 'Consultation Ended';
-    return t.liveConsultation;
+    if (connectionState === 'ended') return 'Consultation Completed';
+    return peerJoined ? 'Doctor in Room — Connecting...' : 'Waiting for Doctor to join…';
   };
 
   return (

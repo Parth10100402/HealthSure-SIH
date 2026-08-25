@@ -163,7 +163,7 @@ export const DoctorAppointmentsPage: React.FC = () => {
                       type="button"
                       onClick={() => {
                         if (apt.mode === 'teleconsultation') {
-                          const sessionId = (apt as any).teleconsultId || apt.id || 'tele-001';
+                          const sessionId = (apt as any).teleconsultId || (apt.id && apt.id.startsWith('tele-') ? apt.id : 'tele-001');
                           navigate(`/doctor/teleconsultation?id=${encodeURIComponent(sessionId)}`);
                         } else {
                           setSelectedApt(apt);

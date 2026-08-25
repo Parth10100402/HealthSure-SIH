@@ -178,8 +178,13 @@ export interface TeleconsultationEntity {
     appointmentId: string;
     patientId: string;
     doctorId: string;
-    status: TeleconsultStatus;
+    status: string;
     networkMode: NetworkMode;
+    patientJoined?: boolean;
+    doctorJoined?: boolean;
+    patientJoinedAt?: number;
+    doctorJoinedAt?: number;
+    connectedAt?: number;
     startedAt?: Date;
     endedAt?: Date;
     durationSeconds: number;
