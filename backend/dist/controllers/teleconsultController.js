@@ -82,11 +82,53 @@ export const getTeleconsultById = async (req, res, next) => {
 export const getTeleconsultSession = async (req, res, next) => {
     try {
         const id = String(req.params.id);
-        const presence = sessionPresenceStore.get(id) || {
-            patientJoined: false,
-            doctorJoined: false,
-            status: 'SCHEDULED',
-        };
+        let presence = sessionPresenceStore.get(id);
+        // If local memory is empty or cold, synchronize presence from cloud relay
+        if (!presence || (!presence.patientJoined && !presence.doctorJoined)) {
+            try {
+                const relayRes = await fetch(`https://ntfy.sh/healthsure-tele-${encodeURIComponent(id)}/json?poll=1&since=5m`);
+                if (relayRes.ok) {
+                    const text = await relayRes.text();
+                    const lines = text.trim().split('\n');
+                    for (const line of lines) {
+                        if (!line)
+                            continue;
+                        try {
+                            const event = JSON.parse(line);
+                            if (event.event === 'message' && event.message) {
+                                const msg = JSON.parse(event.message);
+                                if (msg && msg.type === 'presence' && msg.payload) {
+                                    if (!presence) {
+                                        presence = { patientJoined: false, doctorJoined: false, status: 'SCHEDULED' };
+                                    }
+                                    if (msg.payload.role === 'patient')
+                                        presence.patientJoined = true;
+                                    if (msg.payload.role === 'doctor')
+                                        presence.doctorJoined = true;
+                                    if (presence.patientJoined && presence.doctorJoined)
+                                        presence.status = 'CONNECTING';
+                                    else if (presence.patientJoined)
+                                        presence.status = 'WAITING_FOR_DOCTOR';
+                                    else if (presence.doctorJoined)
+                                        presence.status = 'WAITING_FOR_PATIENT';
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                    if (presence)
+                        sessionPresenceStore.set(id, presence);
+                }
+            }
+            catch { }
+        }
+        if (!presence) {
+            presence = {
+                patientJoined: false,
+                doctorJoined: false,
+                status: 'SCHEDULED',
+            };
+        }
         const tele = dataStore.teleconsultations.find((t) => t.id === id || t.appointmentId === id);
         res.json({
             success: true,
