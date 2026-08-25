@@ -1,0 +1,10 @@
+import type { Request, Response, NextFunction } from 'express';
+export declare const getTeleconsultations: (req: Request, res: Response, next: NextFunction) => Promise<void>;
+export declare const getTeleconsultById: (req: Request, res: Response, next: NextFunction) => Promise<void>;
+export declare const getTeleconsultSession: (req: Request, res: Response, next: NextFunction) => Promise<void>;
+export declare const joinTeleconsult: (req: Request, res: Response, next: NextFunction) => Promise<void>;
+export declare const leaveTeleconsult: (req: Request, res: Response, next: NextFunction) => Promise<void>;
+export declare const sendSignal: (req: Request, res: Response, next: NextFunction) => Promise<void>;
+export declare const getSignals: (req: Request, res: Response, next: NextFunction) => Promise<void>;
+export declare const clearSignals: (req: Request, res: Response, next: NextFunction) => Promise<void>;
+export declare const patchTeleconsult: (req: Request, res: Response, next: NextFunction) => Promise<void>;
