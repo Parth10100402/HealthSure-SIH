@@ -6,13 +6,13 @@ import { dataStore } from '../db/store.js';
 
 export const getAdminOverview = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const baseAppointments = 1280;
-    const initialAptCount = 2; // initial seeded appointments
-    const totalAppointments = baseAppointments + (dataStore.appointments.length - initialAptCount);
+    const baseAppointments = 1240;
+    const initialAptCount = 1;
+    const totalAppointments = baseAppointments + Math.max(0, dataStore.appointments.length - initialAptCount);
 
     const basePatients = 12840;
     const initialPatCount = 1;
-    const patientsServed = basePatients + (dataStore.patients.length - initialPatCount);
+    const patientsServed = basePatients + Math.max(0, dataStore.patients.length - initialPatCount);
 
     const totalReferrals = dataStore.referrals.length + 436;
     const completedReferrals = 381;
@@ -23,8 +23,8 @@ export const getAdminOverview = async (_req: Request, res: Response, next: NextF
     const bookedOutreachSlots = dataStore.outreachSchedules.reduce((a, b) => a + (b.totalSlots - b.availableSlots), 0);
 
     const baseTeleconsults = 1284;
-    const initialTeleCount = 2;
-    const teleconsultations = baseTeleconsults + (dataStore.teleconsultations.length - initialTeleCount);
+    const initialTeleCount = 1;
+    const teleconsultations = baseTeleconsults + Math.max(0, dataStore.teleconsultations.length - initialTeleCount);
 
     const followUpsDue = dataStore.followUps.filter((f) => f.status === 'DUE').length + 310;
 

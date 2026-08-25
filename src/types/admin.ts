@@ -26,6 +26,7 @@ export interface AdminFilterOptions {
 
 export interface PublicHealthIndicator {
   patientsServed: number; // e.g. 12840
+  totalAppointments?: number; // e.g. 1240 -> 1241 on booking
   activeReferrals: number; // e.g. 438
   referralCompletionRate: number; // e.g. 87%
   specialistOutreachVisits: number; // e.g. 126

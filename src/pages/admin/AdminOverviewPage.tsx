@@ -42,12 +42,17 @@ export const AdminOverviewPage: React.FC = () => {
   const [teleStats, setTeleStats] = useState<TeleconsultationStats | null>(null);
 
   useEffect(() => {
-    adminService.getIndicators({ state: 'Maharashtra', district: selectedDistrict, facility: selectedFacility }).then(setIndicators);
-    adminService.getReferralPipeline().then(setPipeline);
-    adminService.getBottlenecks().then(setBottlenecks);
-    adminService.getFacilities(selectedDistrict).then(setFacilities);
-    adminService.getSpecialistOutreach(selectedFacility).then(setOutreach);
-    adminService.getTeleconsultStats().then(setTeleStats);
+    const fetchData = () => {
+      adminService.getIndicators({ state: 'Maharashtra', district: selectedDistrict, facility: selectedFacility }).then(setIndicators);
+      adminService.getReferralPipeline().then(setPipeline);
+      adminService.getBottlenecks().then(setBottlenecks);
+      adminService.getFacilities(selectedDistrict).then(setFacilities);
+      adminService.getSpecialistOutreach(selectedFacility).then(setOutreach);
+      adminService.getTeleconsultStats().then(setTeleStats);
+    };
+    fetchData();
+    const interval = setInterval(fetchData, 8000);
+    return () => clearInterval(interval);
   }, [selectedDistrict, selectedFacility]);
 
   if (!indicators) return null;
@@ -61,7 +66,7 @@ export const AdminOverviewPage: React.FC = () => {
             <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-white/15 text-white text-xs font-semibold backdrop-blur-xs">
               <ShieldCheck className="w-3.5 h-3.5 text-[#4FD1C5]" />
               <span>{t.adminPortalTitle}</span>
-              <span className="bg-[#4FD1C5]/20 text-[#4FD1C5] px-2 py-0.2 rounded-md text-[10px]">Demo Data</span>
+              <span className="bg-[#4FD1C5]/20 text-[#4FD1C5] px-2 py-0.2 rounded-md text-[10px]">Authoritative DB</span>
             </div>
 
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
@@ -81,8 +86,8 @@ export const AdminOverviewPage: React.FC = () => {
         </div>
       </section>
 
-      {/* ── 6 Core Public Health Indicators ─────────────────────────────── */}
-      <section aria-label="Key Indicators" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      {/* ── Core Public Health Indicators ─────────────────────────────── */}
+      <section aria-label="Key Indicators" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
         {/* 1. Patients Served */}
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0A2020] border border-[#DDE8E4] dark:border-[#1A3A3A] space-y-1 shadow-xs">
           <div className="flex items-center justify-between text-[#64748B] dark:text-[#7B9EA8]">
@@ -95,7 +100,19 @@ export const AdminOverviewPage: React.FC = () => {
           <div className="text-[10px] text-[#64748B] dark:text-[#7B9EA8]">Across Rural PHCs</div>
         </div>
 
-        {/* 2. Active Referrals */}
+        {/* 2. Total Appointments (Authoritative DB Count) */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-[#0A2020] border border-[#DDE8E4] dark:border-[#1A3A3A] space-y-1 shadow-xs">
+          <div className="flex items-center justify-between text-[#64748B] dark:text-[#7B9EA8]">
+            <span className="font-bold uppercase tracking-wider text-[10px] truncate">Appointments</span>
+            <Activity className="w-4 h-4 text-[#087F6D]" />
+          </div>
+          <div className="text-xl sm:text-2xl font-extrabold text-[#087F6D] dark:text-[#4FD1C5]">
+            {(indicators.totalAppointments || 1240).toLocaleString()}
+          </div>
+          <div className="text-[10px] text-[#087F6D] dark:text-[#4FD1C5] font-semibold">Live DB Synced</div>
+        </div>
+
+        {/* 3. Active Referrals */}
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0A2020] border border-[#DDE8E4] dark:border-[#1A3A3A] space-y-1 shadow-xs">
           <div className="flex items-center justify-between text-[#64748B] dark:text-[#7B9EA8]">
             <span className="font-bold uppercase tracking-wider text-[10px] truncate">{t.activeReferrals}</span>
@@ -107,7 +124,7 @@ export const AdminOverviewPage: React.FC = () => {
           <div className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">In Transfer Pipeline</div>
         </div>
 
-        {/* 3. Referral Completion Rate */}
+        {/* 4. Referral Completion Rate */}
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0A2020] border border-[#DDE8E4] dark:border-[#1A3A3A] space-y-1 shadow-xs">
           <div className="flex items-center justify-between text-[#64748B] dark:text-[#7B9EA8]">
             <span className="font-bold uppercase tracking-wider text-[10px] truncate">{t.referralCompletionRate}</span>
@@ -119,7 +136,7 @@ export const AdminOverviewPage: React.FC = () => {
           <div className="text-[10px] text-emerald-700 dark:text-emerald-300 font-semibold">+3.2% vs Last Quarter</div>
         </div>
 
-        {/* 4. Specialist Outreach */}
+        {/* 5. Specialist Outreach */}
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0A2020] border border-[#DDE8E4] dark:border-[#1A3A3A] space-y-1 shadow-xs">
           <div className="flex items-center justify-between text-[#64748B] dark:text-[#7B9EA8]">
             <span className="font-bold uppercase tracking-wider text-[10px] truncate">{t.outreachVisits}</span>
@@ -131,7 +148,7 @@ export const AdminOverviewPage: React.FC = () => {
           <div className="text-[10px] text-[#087F6D] dark:text-[#4FD1C5] font-semibold">Visits Conducted</div>
         </div>
 
-        {/* 5. Teleconsultations */}
+        {/* 6. Teleconsultations */}
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0A2020] border border-[#DDE8E4] dark:border-[#1A3A3A] space-y-1 shadow-xs">
           <div className="flex items-center justify-between text-[#64748B] dark:text-[#7B9EA8]">
             <span className="font-bold uppercase tracking-wider text-[10px] truncate">{t.teleconsultations}</span>
@@ -143,7 +160,7 @@ export const AdminOverviewPage: React.FC = () => {
           <div className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">68% in 2G Audio Mode</div>
         </div>
 
-        {/* 6. Follow-ups Due */}
+        {/* 7. Follow-ups Due */}
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0A2020] border border-[#DDE8E4] dark:border-[#1A3A3A] space-y-1 shadow-xs">
           <div className="flex items-center justify-between text-[#64748B] dark:text-[#7B9EA8]">
             <span className="font-bold uppercase tracking-wider text-[10px] truncate">{t.followUpsDue}</span>

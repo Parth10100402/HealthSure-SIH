@@ -193,10 +193,28 @@ export const patientService = {
         if (json.success && Array.isArray(json.data) && json.data.length > 0) {
           return json.data.map((o: any) => ({
             id: o.id || o.outreachId,
-            doctorName: o.doctorName || o.specialistName || 'Dr. Ananya Mehta',
-            doctorQualification: 'MD, DM (Cardiology), Lead Specialist',
+            doctorName: o.doctorName || o.specialistName || 'Dr. Specialist',
+            doctorQualification:
+              o.speciality === 'Cardiology'
+                ? 'MD, DM (Cardiology), Lead Specialist'
+                : o.speciality === 'General Medicine'
+                ? 'MD (General Medicine), Consultant Physician'
+                : o.speciality === 'Gynecology'
+                ? 'MS (Obstetrics & Gynecology)'
+                : o.speciality === 'Pediatrics'
+                ? 'MD (Pediatrics), Child Health Specialist'
+                : o.speciality === 'Dermatology'
+                ? 'MD (Dermatology, Venereology & Leprosy)'
+                : o.speciality === 'Orthopedics'
+                ? 'MS (Orthopedics), Joint & Trauma Surgeon'
+                : o.speciality === 'ENT'
+                ? 'MS (ENT & Otorhinolaryngology)'
+                : o.speciality === 'Neurology'
+                ? 'DM (Neurology), Consultant Neurologist'
+                : 'MD / MS Specialist Consultant',
             speciality: o.speciality,
             baseHospital: o.hospitalName || 'District Hospital Ratnagiri',
+            hospital: o.hospitalName || 'District Hospital Ratnagiri',
             outreachLocation: o.destinationPHC || 'PHC Khed',
             outreachFacilityType: 'PHC' as const,
             date: o.date,
@@ -204,7 +222,8 @@ export const patientService = {
             totalSlots: o.totalSlots,
             availableSlots: o.availableSlots,
             status: o.availableSlots === 0 ? ('booked' as const) : o.availableSlots <= 5 ? ('filling_fast' as const) : ('available' as const),
-            servicesProvided: ['Cardiac Clinical Assessment', '12-Lead ECG Evaluation', '2D Echocardiography Screening', 'Prescription Adjustment'],
+            servicesProvided: [`${o.speciality} Clinical Assessment`, 'Diagnostic Screening & Triage', 'Digital Prescription & Follow-up Plan'],
+            instructions: ['Please bring prior medical records, prescriptions, and government Photo ID.'],
             patientPrep: 'Please bring prior medical records, ECG tracings, and current medicine strips.',
           }));
         }
@@ -226,12 +245,13 @@ export const patientService = {
         const json = await res.json();
         if (json.success && json.data) {
           const aptData = json.data.appointment;
+          const outreachDoc = json.data.outreach;
           const newApt: Appointment = {
             id: aptData.appointmentId || aptData.id,
-            doctorName: json.data.outreach?.doctorName || 'Dr. Ananya Mehta',
-            doctorQualification: 'MD, DM (Cardiology)',
-            speciality: json.data.outreach?.speciality || 'Cardiology',
-            facility: json.data.outreach?.destinationPHC || 'PHC Khed',
+            doctorName: outreachDoc?.doctorName || 'Dr. Specialist',
+            doctorQualification: outreachDoc?.doctorSpeciality === 'Cardiology' ? 'MD, DM (Cardiology)' : 'MD / MS Specialist',
+            speciality: outreachDoc?.speciality || 'General Medicine',
+            facility: outreachDoc?.destinationPHC || 'PHC Khed',
             facilityType: 'PHC',
             date: aptData.date,
             time: aptData.startTime,
@@ -239,10 +259,10 @@ export const patientService = {
             type: 'outreach',
             tokenNumber: aptData.token || 'MMU-08',
             roomNumber: 'Specialist Outreach Unit',
-            reasonForVisit: patientReason || 'Specialist Outreach Consultation',
+            reasonForVisit: patientReason || `Specialist Outreach Consultation - ${outreachDoc?.speciality || 'Specialist'}`,
             instructions: 'Please bring prior records and Photo ID.',
             isOutreachVisit: true,
-            outreachLocation: json.data.outreach?.destinationPHC || 'PHC Khed',
+            outreachLocation: outreachDoc?.destinationPHC || 'PHC Khed',
           };
           mockAppointments.unshift(newApt);
           return { success: true, appointment: newApt, message: json.message || 'Slot confirmed.' };

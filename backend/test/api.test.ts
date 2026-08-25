@@ -279,6 +279,58 @@ async function runTests() {
     }
   });
 
+  // 16. Cross-Portal Consistency: Government appointment count increments upon booking
+  await test('Cross-Portal: Appointment booking immediately increments government database aggregate', async () => {
+    const resBefore = await fetch(`${baseUrl}/admin/overview`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const dataBefore = await resBefore.json();
+    const initialAppointments = dataBefore.data.indicators.totalAppointments;
+
+    // Book another appointment
+    const bookRes = await fetch(`${baseUrl}/outreach/outreach-002/book`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${patientToken}`,
+      },
+      body: JSON.stringify({ reasonForVisit: 'General Medicine routine review' }),
+    });
+    const bookData = await bookRes.json();
+    if (!bookRes.ok || !bookData.success) {
+      throw new Error(`Outreach-002 booking failed: ${bookData.message}`);
+    }
+
+    const resAfter = await fetch(`${baseUrl}/admin/overview`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const dataAfter = await resAfter.json();
+    const updatedAppointments = dataAfter.data.indicators.totalAppointments;
+
+    if (updatedAppointments !== initialAppointments + 1) {
+      throw new Error(`Expected totalAppointments to increment from ${initialAppointments} to ${initialAppointments + 1}, got ${updatedAppointments}`);
+    }
+  });
+
+  // 17. Atomic Slot Exhaustion: Prevents overbooking when slots reach 0
+  await test('Atomic Booking: Rejects overbooking with error when availableSlots reach 0', async () => {
+    const outreach = dataStore.outreachSchedules.find((o) => o.id === 'outreach-007');
+    if (outreach) outreach.availableSlots = 0;
+
+    const res = await fetch(`${baseUrl}/outreach/outreach-007/book`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${patientToken}`,
+      },
+      body: JSON.stringify({ reasonForVisit: 'Attempt booking full slot' }),
+    });
+    const data = await res.json();
+    if (res.status !== 400 && res.status !== 409) {
+      throw new Error(`Expected 400/409 for full slot, got ${res.status}`);
+    }
+  });
+
   console.log('────────────────────────────────────────────────────');
   console.log(`📊 Test Results: ${passed} passed, ${failed} failed.`);
   console.log('────────────────────────────────────────────────────');

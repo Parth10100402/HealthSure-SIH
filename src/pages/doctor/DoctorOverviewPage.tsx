@@ -42,6 +42,8 @@ export const DoctorOverviewPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    const interval = setInterval(loadData, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const pendingReferralsCount = referrals.filter((r) => r.status === 'created' || r.status === 'hospital_accepted').length;

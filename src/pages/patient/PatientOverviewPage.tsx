@@ -34,7 +34,10 @@ export const PatientOverviewPage: React.FC = () => {
   const facility = (user as any)?.village || mockPatientProfile.registeredFacility;
 
   useEffect(() => {
-    patientService.getAppointments().then(setAppointments);
+    const fetchApts = () => patientService.getAppointments().then(setAppointments);
+    fetchApts();
+    const interval = setInterval(fetchApts, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const nextAppointment = appointments.find((a) => a.status === 'confirmed' || a.status === 'pending') || appointments[0];

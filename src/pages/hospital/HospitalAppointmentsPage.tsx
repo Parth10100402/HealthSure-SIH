@@ -12,7 +12,10 @@ export const HospitalAppointmentsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    hospitalService.getAppointments().then(setAppointments);
+    const fetchApts = () => hospitalService.getAppointments().then(setAppointments);
+    fetchApts();
+    const interval = setInterval(fetchApts, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const filtered = appointments.filter((apt) => {

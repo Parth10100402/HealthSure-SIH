@@ -27,6 +27,8 @@ export const AppointmentsPage: React.FC = () => {
 
   useEffect(() => {
     loadAppointments();
+    const interval = setInterval(loadAppointments, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const filteredAppointments = appointments.filter((apt) => {

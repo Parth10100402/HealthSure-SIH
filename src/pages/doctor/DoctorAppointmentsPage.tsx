@@ -28,6 +28,8 @@ export const DoctorAppointmentsPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    const interval = setInterval(loadData, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const filtered = appointments.filter((apt) => {
