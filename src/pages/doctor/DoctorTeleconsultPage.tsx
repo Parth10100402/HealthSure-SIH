@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Video,
   VideoOff,
@@ -14,6 +14,9 @@ import { useWebRTC } from '../../hooks/useWebRTC';
 
 export const DoctorTeleconsultPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const sessionId = searchParams.get('id') || 'tele-001';
+
   const [liveNotes, setLiveNotes] = useState(
     'Patient reports reduced exertional breathlessness with current medication. Compliant with diet. Advised follow-up 2D-Echo.'
   );
@@ -28,12 +31,13 @@ export const DoctorTeleconsultPage: React.FC = () => {
     isRemoteVideoActive,
     isLowBandwidthMode,
     callDuration,
+    errorMessage,
     toggleCamera,
     toggleMic,
     toggleLowBandwidth,
     endCall,
   } = useWebRTC({
-    sessionId: 'tele-001',
+    sessionId,
     role: 'doctor',
     autoStart: true,
   });
@@ -94,6 +98,12 @@ export const DoctorTeleconsultPage: React.FC = () => {
           <span>2G Low-Bandwidth Mode: {isLowBandwidthMode ? 'ON' : 'OFF'}</span>
         </button>
       </div>
+
+      {errorMessage && (
+        <div className="p-4 rounded-2xl bg-rose-500/20 border border-rose-500/40 text-rose-200 text-xs font-semibold">
+          ⚠️ {errorMessage}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ── VIDEO FEED AREA ────────────────────────────────────────────── */}

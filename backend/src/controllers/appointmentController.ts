@@ -34,6 +34,8 @@ export const getAppointments = async (req: Request, res: Response, next: NextFun
       const doc = dataStore.doctors.find((d) => d.id === a.doctorId);
       const fac = dataStore.facilities.find((f) => f.id === a.facilityId);
 
+      const tele = dataStore.teleconsultations.find((t) => t.appointmentId === a.id || t.id === a.id);
+
       return {
         ...a,
         patientName: pat?.fullName || 'Patient',
@@ -41,6 +43,7 @@ export const getAppointments = async (req: Request, res: Response, next: NextFun
         doctorName: doc?.name || 'Dr. Specialist',
         speciality: doc?.speciality || 'General Medicine',
         facilityName: fac?.name || 'District Hospital Ratnagiri',
+        teleconsultId: tele?.id || 'tele-001',
       };
     });
 
@@ -113,6 +116,22 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
     };
 
     dataStore.appointments.unshift(newApt);
+
+    if (newApt.mode === 'TELECONSULTATION') {
+      const teleId = `tele-${newApt.id}`;
+      dataStore.teleconsultations.unshift({
+        id: teleId,
+        appointmentId: newApt.id,
+        patientId: newApt.patientId,
+        doctorId: newApt.doctorId,
+        status: 'SCHEDULED',
+        networkMode: 'HD_VIDEO',
+        durationSeconds: 0,
+        clinicalNotes: 'WebRTC P2P Teleconsultation Session',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
 
     res.status(201).json({
       success: true,

@@ -749,7 +749,7 @@ export const mockMedicines: MedicineStock[] = [
 
 export const mockTeleconsultations: Teleconsultation[] = [
   {
-    id: 'HS-TEL-801',
+    id: 'tele-001',
     appointmentId: 'HS-APT-3012',
     doctorName: 'Dr. Ananya Mehta',
     speciality: 'Cardiology',

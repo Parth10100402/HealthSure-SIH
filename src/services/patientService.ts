@@ -30,7 +30,7 @@ import {
 import { HEALTHSURE_IVR_NUMBER } from '../config/constants';
 import { getStoredToken } from './authService';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 const getAuthHeaders = () => {
   const token = getStoredToken();
