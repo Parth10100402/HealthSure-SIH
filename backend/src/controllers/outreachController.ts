@@ -1,3 +1,4 @@
+import { publishCloudAppointment, syncCloudAppointments } from '../db/cloudSync.js';
 // HealthSure — Specialist Outreach Controller with Atomic Slot Booking
 // backend/src/controllers/outreachController.ts
 

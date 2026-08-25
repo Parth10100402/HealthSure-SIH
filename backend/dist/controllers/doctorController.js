@@ -1,5 +1,4 @@
-// HealthSure — Doctor Controller with Canonical DateTime Formatting
-// backend/src/controllers/doctorController.ts
+import { syncCloudAppointments } from '../db/cloudSync.js';
 import { dataStore } from '../db/store.js';
 import { createUtcInstantFromIst, formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime.js';
 export const getMyDoctorProfile = async (req, res, next) => {
@@ -23,6 +22,7 @@ export const getMyDoctorProfile = async (req, res, next) => {
     }
 };
 export const getDoctorAppointments = async (req, res, next) => {
+    await syncCloudAppointments(dataStore);
     try {
         const doctor = dataStore.doctors.find((d) => d.userId === req.user?.userId || d.id === req.user?.doctorId) || dataStore.doctors[0];
         const appointments = dataStore.appointments.filter((a) => a.doctorId === doctor.id);

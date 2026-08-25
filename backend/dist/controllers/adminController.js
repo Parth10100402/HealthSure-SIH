@@ -1,7 +1,7 @@
-// HealthSure — Government Admin Controller
-// backend/src/controllers/adminController.ts
+import { syncCloudAppointments } from '../db/cloudSync.js';
 import { dataStore } from '../db/store.js';
 export const getAdminOverview = async (_req, res, next) => {
+    await syncCloudAppointments(dataStore);
     try {
         const baseAppointments = 1240;
         const initialAptCount = 1;

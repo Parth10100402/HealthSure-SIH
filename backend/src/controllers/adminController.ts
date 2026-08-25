@@ -1,3 +1,4 @@
+import { syncCloudAppointments } from '../db/cloudSync.js';
 // HealthSure — Government Admin Controller
 // backend/src/controllers/adminController.ts
 
@@ -5,6 +6,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { dataStore } from '../db/store.js';
 
 export const getAdminOverview = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  await syncCloudAppointments(dataStore);
   try {
     const baseAppointments = 1240;
     const initialAptCount = 1;

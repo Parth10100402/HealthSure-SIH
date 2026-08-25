@@ -1,9 +1,9 @@
-// HealthSure — Appointments Controller with Canonical DateTime & Atomic Transactions
-// backend/src/controllers/appointmentController.ts
+import { publishCloudAppointment, syncCloudAppointments } from '../db/cloudSync.js';
 import { dataStore } from '../db/store.js';
 import { createAppointmentSchema } from '../schemas/validationSchemas.js';
 import { createUtcInstantFromIst, formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime.js';
 export const getAppointments = async (req, res, next) => {
+    await syncCloudAppointments(dataStore);
     try {
         const { status, mode, doctorId, patientId } = req.query;
         let list = [...dataStore.appointments];
@@ -155,6 +155,7 @@ export const createAppointment = async (req, res, next) => {
             updatedAt: new Date(),
         };
         dataStore.appointments.unshift(newApt);
+        publishCloudAppointment(newApt);
         if (newApt.mode === 'TELECONSULTATION') {
             const teleId = `tele-${newApt.id}`;
             dataStore.teleconsultations.unshift({

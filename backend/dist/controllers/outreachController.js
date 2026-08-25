@@ -1,5 +1,3 @@
-// HealthSure — Specialist Outreach Controller with Atomic Slot Booking
-// backend/src/controllers/outreachController.ts
 import { dataStore } from '../db/store.js';
 import { bookOutreachSlotSchema } from '../schemas/validationSchemas.js';
 export const getOutreachSchedules = async (req, res, next) => {
