@@ -40,6 +40,7 @@ export const DoctorTeleconsultPage: React.FC = () => {
     localTracks,
     remoteTracks,
     isRemoteAttached,
+    candidateStats,
     toggleCamera,
     toggleMic,
     toggleLowBandwidth,
@@ -311,6 +312,24 @@ export const DoctorTeleconsultPage: React.FC = () => {
                   <PhoneOff className="w-4 h-4" />
                   <span>End Consultation</span>
                 </button>
+              </div>
+            </div>
+
+            {/* Doctor WebRTC Diagnostics Bar */}
+            <div className="px-4 py-2 rounded-2xl bg-slate-950 border border-slate-800 text-[10px] font-mono text-slate-300 flex flex-wrap items-center justify-between gap-2 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-400 font-bold">P2P: {connectionState}</span>
+                <span>•</span>
+                <span>ICE: {iceConnectionState} (H:{candidateStats.host} S:{candidateStats.srflx} R:{candidateStats.relay})</span>
+                <span>•</span>
+                <span>Sig: {signalingState}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span>Local: {localTracks.audio ? '🎤' : '❌'}{localTracks.video ? '📹' : '❌'}</span>
+                <span>•</span>
+                <span>Remote: {remoteTracks.audio ? '🔊' : '❌'}{remoteTracks.video ? '📺' : '❌'}</span>
+                <span>•</span>
+                <span>Attached: {isRemoteAttached ? '✓' : '…'}</span>
               </div>
             </div>
           </div>

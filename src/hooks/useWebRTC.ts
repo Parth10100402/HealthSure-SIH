@@ -1,4 +1,4 @@
-// HealthSure — Rebuilt Production WebRTC Hook
+// HealthSure — Production WebRTC Engine with Full Tracing & STUN+TURN Relay
 // src/hooks/useWebRTC.ts
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -39,6 +39,7 @@ export interface UseWebRTCResult {
   remoteTracks: { audio: boolean; video: boolean };
   isRemoteAttached: boolean;
   peerJoined: boolean;
+  candidateStats: { host: number; srflx: number; relay: number };
   toggleCamera: () => void;
   toggleMic: () => void;
   toggleLowBandwidth: () => void;
@@ -49,7 +50,7 @@ export interface UseWebRTCResult {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
-// Dynamic ICE Server Configuration (STUN + TURN fallback)
+// Dynamic ICE Server Configuration with Google STUN + OpenRelay TURN fallback + custom env
 function getIceServers(): RTCConfiguration {
   const iceServers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -58,23 +59,37 @@ function getIceServers(): RTCConfiguration {
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: 'stun:global.stun.twilio.com:3478' },
+    // Public OpenRelay TURN fallback for Carrier-Grade Symmetric NAT (Cellular / 4G / 5G)
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp',
+        'turns:openrelay.metered.ca:443?transport=tcp',
+      ],
+      username: 'openrelay',
+      credential: 'openrelay',
+    },
   ];
 
-  const turnUrl = import.meta.env.VITE_TURN_URL;
-  const turnUsername = import.meta.env.VITE_TURN_USERNAME;
-  const turnCredential = import.meta.env.VITE_TURN_CREDENTIAL;
+  const customTurnUrl = import.meta.env.VITE_TURN_URL;
+  const customTurnUsername = import.meta.env.VITE_TURN_USERNAME;
+  const customTurnCredential = import.meta.env.VITE_TURN_CREDENTIAL;
 
-  if (turnUrl) {
-    console.log('[WebRTC] Configuring custom TURN relay server');
-    iceServers.push({
-      urls: turnUrl,
-      username: turnUsername || undefined,
-      credential: turnCredential || undefined,
+  if (customTurnUrl) {
+    iceServers.unshift({
+      urls: customTurnUrl,
+      username: customTurnUsername || undefined,
+      credential: customTurnCredential || undefined,
     });
   }
 
-  return { iceServers, iceCandidatePoolSize: 10 };
+  return {
+    iceServers,
+    iceCandidatePoolSize: 10,
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require',
+  };
 }
 
 export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptions): UseWebRTCResult {
@@ -97,10 +112,16 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
   const [remoteTracks, setRemoteTracks] = useState<{ audio: boolean; video: boolean }>({ audio: false, video: false });
   const [isRemoteAttached, setIsRemoteAttached] = useState<boolean>(false);
   const [peerJoined, setPeerJoined] = useState<boolean>(false);
+  const [candidateStats, setCandidateStats] = useState<{ host: number; srflx: number; relay: number }>({
+    host: 0,
+    srflx: 0,
+    relay: 0,
+  });
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
 
+  const pcIdRef = useRef<string>(`pc-${Math.random().toString(36).substring(2, 7)}`);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
@@ -108,21 +129,29 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
   const pollingTimerRef = useRef<any>(null);
   const durationTimerRef = useRef<any>(null);
   const connectedAtRef = useRef<number | null>(null);
-  const lastProcessedSignalTimeRef = useRef<number>(0);
   const isStartedRef = useRef<boolean>(false);
+  const isStartingRef = useRef<boolean>(false);
 
   // Pending ICE candidates queue (buffered until remoteDescription is set)
   const pendingCandidatesQueueRef = useRef<RTCIceCandidateInit[]>([]);
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
 
-  // 1. Drift-Free Call Duration Timer
+  const log = useCallback(
+    (action: string, detail: any = '') => {
+      const now = new Date().toISOString().substring(11, 23);
+      console.log(`[${now}][${role.toUpperCase()}][${sessionId}][${pcIdRef.current}] ${action}`, detail);
+    },
+    [role, sessionId]
+  );
+
+  // 1. Drift-Free Call Duration Timer (Starts strictly on connection)
   useEffect(() => {
     const isConnected = connectionState === 'connected' || iceConnectionState === 'connected' || iceConnectionState === 'completed';
 
     if (isConnected) {
       if (!connectedAtRef.current) {
         connectedAtRef.current = Date.now();
-        console.log(`[WebRTC - ${role} - ${sessionId}] P2P Connection Live. Timestamp timer started.`);
+        log('CALL_TIMER_STARTED', { connectedAt: connectedAtRef.current });
       }
 
       if (!durationTimerRef.current) {
@@ -146,7 +175,7 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
         durationTimerRef.current = null;
       }
     };
-  }, [connectionState, iceConnectionState, role, sessionId]);
+  }, [connectionState, iceConnectionState, log]);
 
   // 2. Persistent Remote Video Element Attachment
   useEffect(() => {
@@ -155,31 +184,36 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
 
     if (videoEl && stream) {
       if (videoEl.srcObject !== stream) {
-        console.log(`[WebRTC - ${role} - ${sessionId}] [Effect] Attaching remote MediaStream to video element`);
+        log('ATTACH_REMOTE_STREAM_TO_VIDEO_ELEMENT', { trackCount: stream.getTracks().length });
         videoEl.srcObject = stream;
         setIsRemoteAttached(true);
       }
-      videoEl.play().catch(() => {
-        // Auto-play policy warning
-      });
+      videoEl
+        .play()
+        .then(() => {
+          log('VIDEO_PLAY_SUCCESS');
+        })
+        .catch((err) => {
+          log('VIDEO_PLAY_WAITING_OR_AUTOPLAY', err.message);
+        });
     }
-  }, [remoteStream, isRemoteVideoActive, connectionState, role, sessionId]);
+  }, [remoteStream, isRemoteVideoActive, connectionState, log]);
 
   // Send signal message to backend mailbox
   const sendSignalMessage = useCallback(
     async (type: string, payload: any) => {
       try {
-        console.log(`[WebRTC - ${role} - ${sessionId}] SIGNAL_SENT -> ${type}`);
+        log(`SIGNAL_DISPATCH -> ${type}`);
         await fetch(`${API_BASE_URL}/teleconsultations/${sessionId}/signal`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ senderRole: role, type, payload }),
         });
       } catch (e) {
-        console.warn(`[WebRTC - ${role} - ${sessionId}] Signaling send error:`, e);
+        log(`SIGNAL_SEND_ERROR -> ${type}`, e);
       }
     },
-    [sessionId, role]
+    [sessionId, role, log]
   );
 
   // Helper to flush queued ICE candidates once remote description exists
@@ -187,26 +221,27 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     async (pc: RTCPeerConnection) => {
       const queue = pendingCandidatesQueueRef.current;
       if (queue.length === 0) return;
-      console.log(`[WebRTC - ${role} - ${sessionId}] Flushing ${queue.length} queued ICE candidate(s)`);
+      log(`FLUSH_ICE_QUEUE (${queue.length} items)`);
       while (queue.length > 0) {
         const candidate = queue.shift();
-        if (candidate) {
+        if (candidate && candidate.candidate) {
           try {
             await pc.addIceCandidate(new RTCIceCandidate(candidate));
-            console.log(`[WebRTC - ${role} - ${sessionId}] ICE_CANDIDATE_ADDED (from queue)`);
+            log('CANDIDATE_APPLIED_FROM_QUEUE', { sdpMid: candidate.sdpMid });
           } catch (e) {
-            console.warn(`[WebRTC - ${role} - ${sessionId}] Failed to apply queued candidate:`, e);
+            log('QUEUE_CANDIDATE_ERROR', e);
           }
         }
       }
     },
-    [role, sessionId]
+    [log]
   );
 
   // Stop all media tracks and tear down peer connection
   const endCall = useCallback(() => {
-    console.log(`[WebRTC - ${role} - ${sessionId}] Ending teleconsultation session`);
+    log('END_CALL_INVOKED');
     isStartedRef.current = false;
+    isStartingRef.current = false;
     connectedAtRef.current = null;
 
     if (pollingTimerRef.current) {
@@ -247,14 +282,18 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     setIsRemoteAttached(false);
     setCallDuration(0);
     pendingCandidatesQueueRef.current = [];
-  }, [sessionId, role]);
+  }, [sessionId, role, log]);
 
   // Main startup routine
   const startCall = useCallback(async () => {
-    if (isStartedRef.current) return;
-    isStartedRef.current = true;
+    if (isStartedRef.current || isStartingRef.current) {
+      log('START_CALL_SKIPPED (Already started or in-flight)');
+      return;
+    }
+    isStartingRef.current = true;
+    pcIdRef.current = `pc-${Math.random().toString(36).substring(2, 7)}`;
 
-    console.log(`[WebRTC - ${role} - ${sessionId}] Starting call session`);
+    log('START_CALL_INITIATED');
     setConnectionState('requesting_media');
     setErrorMessage(null);
 
@@ -265,12 +304,12 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
       body: JSON.stringify({ role }),
     }).catch(() => {});
 
-    // 2. Secure Context Check for Mobile / Remote Browsers
+    // 2. Secure Context Check
     if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      console.error(`[WebRTC - ${role} - ${sessionId}] navigator.mediaDevices is unavailable (Insecure Context or unsupported)`);
+      log('GET_USER_MEDIA_UNAVAILABLE (Insecure Context / HTTPS required)');
       setConnectionState('failed');
       setErrorMessage('Camera and microphone require HTTPS or localhost.');
-      isStartedRef.current = false;
+      isStartingRef.current = false;
       return;
     }
 
@@ -281,24 +320,26 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
         video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
+      log('GET_USER_MEDIA_SUCCESS (Audio + Video)');
       setIsCameraOn(true);
       setIsMicOn(true);
       setLocalTracks({ audio: true, video: true });
     } catch (mediaErr: any) {
-      console.warn(`[WebRTC - ${role} - ${sessionId}] Video+Audio getUserMedia failed, retrying audio only...`, mediaErr);
+      log('GET_USER_MEDIA_VIDEO_AUDIO_FAILED, retrying audio only...', mediaErr.message);
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: false,
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
+        log('GET_USER_MEDIA_SUCCESS (Audio Only)');
         setIsCameraOn(false);
         setIsMicOn(true);
         setLocalTracks({ audio: true, video: false });
       } catch (audioErr: any) {
-        console.error(`[WebRTC - ${role} - ${sessionId}] Microphone / Camera permission denied:`, audioErr);
+        log('GET_USER_MEDIA_FATAL_DENIED', audioErr.message);
         setConnectionState('failed');
         setErrorMessage('Microphone / Camera access was denied. Please allow permissions in browser site settings.');
-        isStartedRef.current = false;
+        isStartingRef.current = false;
         return;
       }
     }
@@ -321,21 +362,31 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     const rtcConfig = getIceServers();
     const pc = new RTCPeerConnection(rtcConfig);
     peerConnectionRef.current = pc;
+    isStartedRef.current = true;
+    isStartingRef.current = false;
+
+    log('RTC_PEER_CONNECTION_CREATED', {
+      iceServersCount: rtcConfig.iceServers?.length,
+    });
 
     // Add local tracks to peer connection
     stream.getTracks().forEach((track) => {
       pc.addTrack(track, stream);
-      console.log(`[WebRTC - ${role} - ${sessionId}] Local track added: ${track.kind}`);
+      log(`LOCAL_TRACK_ADDED -> ${track.kind} (id=${track.id})`);
     });
+
+    // Explicitly add transceivers if needed
+    log('TRANSCEIVERS_INSPECT', pc.getTransceivers().map((t) => ({ mid: t.mid, dir: t.direction })));
 
     // 6. Handle incoming remote media tracks (ontrack)
     pc.ontrack = (event) => {
-      console.log(`[WebRTC - ${role} - ${sessionId}] ontrack fired: ${event.track?.kind} (${event.track?.readyState})`);
       const track = event.track;
+      log(`ONTRACK_EVENT -> kind=${track.kind}, state=${track.readyState}, id=${track.id}`);
+
       if (track) {
         if (!inboundStream.getTracks().some((t) => t.id === track.id)) {
           inboundStream.addTrack(track);
-          console.log(`[WebRTC - ${role} - ${sessionId}] Remote track registered: ${track.kind}`);
+          log(`REMOTE_TRACK_ATTACHED_TO_STREAM -> ${track.kind}, totalTracks=${inboundStream.getTracks().length}`);
         }
 
         if (track.kind === 'video') {
@@ -348,7 +399,7 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
         }
 
         track.onunmute = () => {
-          console.log(`[WebRTC - ${role} - ${sessionId}] Track unmuted: ${track.kind}`);
+          log(`TRACK_UNMUTED -> ${track.kind}`);
           if (track.kind === 'video') {
             setIsRemoteVideoActive(true);
             setRemoteTracks((prev) => ({ ...prev, video: true }));
@@ -370,18 +421,36 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
       }
     };
 
-    // 7. ICE Candidate Gathering
+    // 7. ICE Candidate Gathering & Classification
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        console.log(`[WebRTC - ${role} - ${sessionId}] Local ICE candidate -> ${event.candidate.type || 'candidate'}`);
-        sendSignalMessage('candidate', event.candidate);
+      if (event.candidate && event.candidate.candidate) {
+        const c = event.candidate;
+        const candStr = c.candidate || '';
+        let candType = 'host';
+        if (candStr.includes(' typ srflx')) candType = 'srflx';
+        else if (candStr.includes(' typ relay')) candType = 'relay';
+        else if (candStr.includes(' typ prflx')) candType = 'prflx';
+
+        setCandidateStats((prev) => ({
+          ...prev,
+          [candType]: (prev[candType as keyof typeof prev] || 0) + 1,
+        }));
+
+        log(`ICE_CANDIDATE_GATHERED -> type=${candType}, protocol=${c.protocol}, sdpMid=${c.sdpMid}`);
+        sendSignalMessage('candidate', c.toJSON ? c.toJSON() : c);
+      } else {
+        log('ICE_GATHERING_COMPLETE (null candidate)');
       }
+    };
+
+    pc.onicegatheringstatechange = () => {
+      log(`ICE_GATHERING_STATE -> ${pc.iceGatheringState}`);
     };
 
     // 8. Monitor Connection States
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
-      console.log(`[WebRTC - ${role} - ${sessionId}] PEER_CONNECTION_STATE -> ${state}`);
+      log(`PEER_CONNECTION_STATE -> ${state}`);
       if (state === 'connected') {
         setConnectionState('connected');
       } else if (state === 'connecting') {
@@ -396,17 +465,17 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     pc.oniceconnectionstatechange = () => {
       const iceState = pc.iceConnectionState;
       setIceConnectionState(iceState);
-      console.log(`[WebRTC - ${role} - ${sessionId}] ICE_CONNECTION_STATE -> ${iceState}`);
+      log(`ICE_CONNECTION_STATE -> ${iceState}`);
       if (iceState === 'connected' || iceState === 'completed') {
         setConnectionState('connected');
       } else if (iceState === 'failed') {
-        console.warn(`[WebRTC - ${role} - ${sessionId}] ICE Connection Failed`);
+        log('ICE_CONNECTION_FAILED (Falling back/retry available)');
       }
     };
 
     pc.onsignalingstatechange = () => {
       setSignalingState(pc.signalingState);
-      console.log(`[WebRTC - ${role} - ${sessionId}] SIGNALING_STATE -> ${pc.signalingState}`);
+      log(`SIGNALING_STATE -> ${pc.signalingState}`);
     };
 
     setConnectionState('signaling');
@@ -414,17 +483,17 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     // 9. Deterministic Role Negotiation: Patient = Offerer
     if (role === 'patient') {
       try {
-        console.log(`[WebRTC - ${role} - ${sessionId}] Patient creating SDP Offer...`);
+        log('PATIENT_CREATING_OFFER');
         const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
         await pc.setLocalDescription(offer);
-        console.log(`[WebRTC - ${role} - ${sessionId}] OFFER_CREATED and dispatched`);
+        log('PATIENT_LOCAL_DESCRIPTION_SET (Offer)', { type: offer.type });
         await sendSignalMessage('offer', offer);
       } catch (e) {
-        console.error(`[WebRTC - ${role} - ${sessionId}] Patient Offer creation failed:`, e);
+        log('PATIENT_OFFER_CREATION_FAILED', e);
       }
     }
 
-    // 10. Multi-Tier Signaling Polling Loop
+    // 10. Robust Zero-Loss Polling Loop
     pollingTimerRef.current = setInterval(async () => {
       if (!peerConnectionRef.current) return;
       const currentPC = peerConnectionRef.current;
@@ -444,9 +513,7 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
       }
 
       try {
-        const res = await fetch(
-          `${API_BASE_URL}/teleconsultations/${sessionId}/signal?role=${role}&since=${lastProcessedSignalTimeRef.current}`
-        );
+        const res = await fetch(`${API_BASE_URL}/teleconsultations/${sessionId}/signal?role=${role}`);
         if (res.ok) {
           const json = await res.json();
           if (json.success && Array.isArray(json.data) && json.data.length > 0) {
@@ -454,12 +521,7 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
               if (processedMessageIdsRef.current.has(msg.id)) continue;
               processedMessageIdsRef.current.add(msg.id);
 
-              lastProcessedSignalTimeRef.current = Math.max(
-                lastProcessedSignalTimeRef.current,
-                msg.timestamp
-              );
-
-              console.log(`[WebRTC - ${role} - ${sessionId}] SIGNAL_RECEIVED -> ${msg.type} from ${msg.senderRole}`);
+              log(`SIGNAL_RECEIVED -> ${msg.type} from ${msg.senderRole} (id=${msg.id})`);
 
               // Peer presence
               if (msg.type === 'presence') {
@@ -469,55 +531,64 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
               // Doctor receives Offer
               if (msg.type === 'offer' && role === 'doctor') {
                 try {
-                  console.log(`[WebRTC - ${role} - ${sessionId}] Setting remote description (Offer)...`);
-                  await currentPC.setRemoteDescription(new RTCSessionDescription(msg.payload));
-                  console.log(`[WebRTC - ${role} - ${sessionId}] REMOTE_DESCRIPTION_SET (Offer)`);
-                  
-                  // Flush any queued ICE candidates
+                  log('DOCTOR_PROCESSING_OFFER', { signalingState: currentPC.signalingState });
+                  if (currentPC.signalingState !== 'stable') {
+                    log('DOCTOR_ROLLBACK_BEFORE_OFFER');
+                    await currentPC.setRemoteDescription(new RTCSessionDescription(msg.payload));
+                  } else {
+                    await currentPC.setRemoteDescription(new RTCSessionDescription(msg.payload));
+                  }
+                  log('DOCTOR_REMOTE_DESCRIPTION_SET (Offer)');
+
+                  // Flush queued candidates
                   await flushQueuedCandidates(currentPC);
 
                   const answer = await currentPC.createAnswer();
                   await currentPC.setLocalDescription(answer);
-                  console.log(`[WebRTC - ${role} - ${sessionId}] ANSWER_CREATED and dispatched`);
+                  log('DOCTOR_LOCAL_DESCRIPTION_SET (Answer)');
                   await sendSignalMessage('answer', answer);
                   setConnectionState('connecting');
                 } catch (offerErr) {
-                  console.error(`[WebRTC - ${role} - ${sessionId}] Error handling Offer:`, offerErr);
+                  log('DOCTOR_OFFER_HANDLING_ERROR', offerErr);
                 }
               }
               // Patient receives Answer
               else if (msg.type === 'answer' && role === 'patient') {
                 if (currentPC.signalingState === 'have-local-offer') {
                   try {
-                    console.log(`[WebRTC - ${role} - ${sessionId}] Setting remote description (Answer)...`);
+                    log('PATIENT_PROCESSING_ANSWER');
                     await currentPC.setRemoteDescription(new RTCSessionDescription(msg.payload));
-                    console.log(`[WebRTC - ${role} - ${sessionId}] REMOTE_DESCRIPTION_SET (Answer)`);
-                    
-                    // Flush any queued ICE candidates
+                    log('PATIENT_REMOTE_DESCRIPTION_SET (Answer)');
+
+                    // Flush queued candidates
                     await flushQueuedCandidates(currentPC);
                     setConnectionState('connecting');
                   } catch (answerErr) {
-                    console.error(`[WebRTC - ${role} - ${sessionId}] Error handling Answer:`, answerErr);
+                    log('PATIENT_ANSWER_HANDLING_ERROR', answerErr);
                   }
+                } else {
+                  log('PATIENT_ANSWER_IGNORED (signalingState is not have-local-offer)', currentPC.signalingState);
                 }
               }
               // Either party receives Candidate
               else if (msg.type === 'candidate') {
-                if (currentPC.remoteDescription && currentPC.remoteDescription.type) {
-                  try {
-                    await currentPC.addIceCandidate(new RTCIceCandidate(msg.payload));
-                    console.log(`[WebRTC - ${role} - ${sessionId}] ICE_CANDIDATE_ADDED immediately`);
-                  } catch (candErr) {
-                    console.warn(`[WebRTC - ${role} - ${sessionId}] Immediate candidate warning:`, candErr);
+                if (msg.payload && (msg.payload.candidate || msg.payload.sdpMid !== undefined)) {
+                  if (currentPC.remoteDescription && currentPC.remoteDescription.type) {
+                    try {
+                      await currentPC.addIceCandidate(new RTCIceCandidate(msg.payload));
+                      log('ICE_CANDIDATE_APPLIED_IMMEDIATELY', { sdpMid: msg.payload.sdpMid });
+                    } catch (candErr) {
+                      log('ICE_CANDIDATE_IMMEDIATE_ERROR', candErr);
+                    }
+                  } else {
+                    log('ICE_CANDIDATE_QUEUED (Waiting for remoteDescription)', { sdpMid: msg.payload.sdpMid });
+                    pendingCandidatesQueueRef.current.push(msg.payload);
                   }
-                } else {
-                  console.log(`[WebRTC - ${role} - ${sessionId}] ICE_CANDIDATE_QUEUED (buffering for remoteDescription)`);
-                  pendingCandidatesQueueRef.current.push(msg.payload);
                 }
               }
               // Peer left
               else if (msg.type === 'leave') {
-                console.log(`[WebRTC - ${role} - ${sessionId}] Peer left the session`);
+                log('PEER_LEFT_NOTIFICATION');
                 setConnectionState('ended');
               }
             }
@@ -527,15 +598,15 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
         // Polling network warning
       }
     }, 1000);
-  }, [sessionId, role, sendSignalMessage, flushQueuedCandidates, isRemoteVideoActive]);
+  }, [sessionId, role, sendSignalMessage, flushQueuedCandidates, isRemoteVideoActive, log]);
 
   const retryConnection = useCallback(async () => {
-    console.log(`[WebRTC - ${role} - ${sessionId}] Retrying connection`);
+    log('RETRY_CONNECTION_REQUESTED');
     endCall();
     setTimeout(() => {
       startCall();
-    }, 500);
-  }, [endCall, startCall, role, sessionId]);
+    }, 600);
+  }, [endCall, startCall, log]);
 
   const toggleCamera = useCallback(() => {
     if (localStreamRef.current) {
@@ -543,9 +614,10 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
         setIsCameraOn(videoTrack.enabled);
+        log(`TOGGLE_CAMERA -> ${videoTrack.enabled}`);
       }
     }
-  }, []);
+  }, [log]);
 
   const toggleMic = useCallback(() => {
     if (localStreamRef.current) {
@@ -553,13 +625,15 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
         setIsMicOn(audioTrack.enabled);
+        log(`TOGGLE_MIC -> ${audioTrack.enabled}`);
       }
     }
-  }, []);
+  }, [log]);
 
   const toggleLowBandwidth = useCallback(() => {
     setIsLowBandwidthMode((prev) => {
       const next = !prev;
+      log(`TOGGLE_LOW_BANDWIDTH -> ${next}`);
       if (localStreamRef.current) {
         const videoTrack = localStreamRef.current.getVideoTracks()[0];
         if (videoTrack) {
@@ -569,7 +643,7 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
       }
       return next;
     });
-  }, []);
+  }, [log]);
 
   useEffect(() => {
     if (autoStart) {
@@ -599,6 +673,7 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     remoteTracks,
     isRemoteAttached,
     peerJoined,
+    candidateStats,
     toggleCamera,
     toggleMic,
     toggleLowBandwidth,

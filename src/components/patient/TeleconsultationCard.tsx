@@ -112,6 +112,7 @@ export const TeleconsultRoomMock: React.FC<{
     remoteTracks,
     isRemoteAttached,
     peerJoined,
+    candidateStats,
     toggleCamera,
     toggleMic,
     toggleLowBandwidth,
@@ -332,7 +333,7 @@ export const TeleconsultRoomMock: React.FC<{
               <div className="flex items-center gap-2">
                 <span className="text-emerald-400 font-bold">P2P: {connectionState}</span>
                 <span>•</span>
-                <span>ICE: {iceConnectionState}</span>
+                <span>ICE: {iceConnectionState} (H:{candidateStats.host} S:{candidateStats.srflx} R:{candidateStats.relay})</span>
                 <span>•</span>
                 <span>Sig: {signalingState}</span>
               </div>
