@@ -19,14 +19,27 @@ export interface SessionPresence {
     status: 'UPCOMING' | 'WAITING_FOR_PATIENT' | 'WAITING_FOR_DOCTOR' | 'CONNECTING' | 'LIVE' | 'ENDED' | 'FAILED';
     durationSeconds: number;
 }
+export declare const sessionPresenceStore: Map<string, SessionPresence>;
 /**
  * Resolves appointment ID, teleconsultation ID, or token to canonical session ID ('tele-001')
  */
 export declare function resolveCanonicalSessionId(id: string): string;
+export interface TransitionContext {
+    sessionId: string;
+    to: 'UPCOMING' | 'WAITING_FOR_PATIENT' | 'WAITING_FOR_DOCTOR' | 'CONNECTING' | 'LIVE' | 'ENDED' | 'FAILED';
+    role?: string;
+    endpoint: string;
+    reason: string;
+    actor: string;
+    requestId?: string;
+    explicitUserAction?: boolean;
+}
+export declare function transitionTeleconsultationState(ctx: TransitionContext): boolean;
 export declare const getTeleconsultations: (req: Request, res: Response, next: NextFunction) => Promise<void>;
 export declare const getTeleconsultById: (req: Request, res: Response, next: NextFunction) => Promise<void>;
 export declare const getTeleconsultSession: (req: Request, res: Response, next: NextFunction) => Promise<void>;
 export declare const joinTeleconsult: (req: Request, res: Response, next: NextFunction) => Promise<void>;
+export declare const liveTeleconsult: (req: Request, res: Response, next: NextFunction) => Promise<void>;
 export declare const leaveTeleconsult: (req: Request, res: Response, next: NextFunction) => Promise<void>;
 export declare const sendSignal: (req: Request, res: Response, next: NextFunction) => Promise<void>;
 export declare const getSignals: (req: Request, res: Response, next: NextFunction) => Promise<void>;

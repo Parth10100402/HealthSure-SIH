@@ -1,4 +1,4 @@
-// HealthSure — Production Teleconsultation & Signaling Controller
+// HealthSure — Production Teleconsultation Controller & Server-Authoritative State Machine
 // backend/src/controllers/teleconsultController.ts
 
 import type { Request, Response, NextFunction } from 'express';
@@ -32,7 +32,7 @@ export interface SessionPresence {
   durationSeconds: number;
 }
 
-const sessionPresenceStore = new Map<string, SessionPresence>();
+export const sessionPresenceStore = new Map<string, SessionPresence>();
 
 /**
  * Resolves appointment ID, teleconsultation ID, or token to canonical session ID ('tele-001')
@@ -49,6 +49,96 @@ export function resolveCanonicalSessionId(id: string): string {
   }
   return clean;
 }
+
+// ── Centralized Server-Authoritative State Machine ──────────────────────────
+export interface TransitionContext {
+  sessionId: string;
+  to: 'UPCOMING' | 'WAITING_FOR_PATIENT' | 'WAITING_FOR_DOCTOR' | 'CONNECTING' | 'LIVE' | 'ENDED' | 'FAILED';
+  role?: string;
+  endpoint: string;
+  reason: string;
+  actor: string;
+  requestId?: string;
+  explicitUserAction?: boolean;
+}
+
+const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+  UPCOMING: ['WAITING_FOR_DOCTOR', 'WAITING_FOR_PATIENT', 'CONNECTING', 'LIVE'],
+  WAITING_FOR_DOCTOR: ['CONNECTING', 'LIVE', 'ENDED'],
+  WAITING_FOR_PATIENT: ['CONNECTING', 'LIVE', 'ENDED'],
+  CONNECTING: ['LIVE', 'FAILED', 'ENDED'],
+  LIVE: ['ENDED', 'FAILED', 'LIVE'], // LIVE -> LIVE is idempotent
+  FAILED: ['CONNECTING', 'LIVE', 'ENDED'],
+  ENDED: [], // terminal state
+};
+
+export function transitionTeleconsultationState(ctx: TransitionContext): boolean {
+  const { sessionId, to, role, endpoint, reason, actor, requestId = Math.random().toString(36).substring(2, 8), explicitUserAction } = ctx;
+  const now = new Date().toISOString();
+
+  let presence = sessionPresenceStore.get(sessionId);
+  if (!presence) {
+    presence = {
+      sessionId,
+      patientJoined: false,
+      doctorJoined: false,
+      status: 'UPCOMING',
+      durationSeconds: 0,
+    };
+    sessionPresenceStore.set(sessionId, presence);
+  }
+
+  const currentStatus = presence.status;
+
+  // Reject accidental / implicit transitions to ENDED while call is active
+  if (to === 'ENDED' && !explicitUserAction && (currentStatus === 'LIVE' || currentStatus === 'CONNECTING')) {
+    console.warn(
+      `[${now}][${sessionId}][${role || 'SYSTEM'}][${requestId}] REJECTED_TRANSITION: Cannot transition ${currentStatus} -> ENDED without explicitUserAction! endpoint=${endpoint} reason=${reason}`
+    );
+    return false;
+  }
+
+  // Idempotent state transition
+  if (currentStatus === to) {
+    return true;
+  }
+
+  const allowed = ALLOWED_TRANSITIONS[currentStatus] || [];
+  if (!allowed.includes(to)) {
+    console.warn(
+      `[${now}][${sessionId}][${role || 'SYSTEM'}][${requestId}] ILLEGAL_TRANSITION: ${currentStatus} -> ${to} is not allowed! endpoint=${endpoint} reason=${reason}`
+    );
+    return false;
+  }
+
+  const oldStatus = presence.status;
+  presence.status = to;
+
+  if (to === 'LIVE' && !presence.connectedAt) {
+    presence.connectedAt = Date.now();
+  }
+  if (to === 'ENDED') {
+    presence.endedAt = Date.now();
+    presence.patientJoined = false;
+    presence.doctorJoined = false;
+  }
+
+  // Sync with in-memory entity
+  const tele = dataStore.teleconsultations.find((t) => t.id === sessionId || t.appointmentId === sessionId);
+  if (tele) {
+    tele.status = to;
+    if (to === 'LIVE' && !tele.startedAt) tele.startedAt = new Date();
+    if (to === 'ENDED') tele.endedAt = new Date();
+  }
+
+  console.log(
+    `[${now}][${sessionId}][${role || 'SYSTEM'}][${requestId}] SESSION_STATE_TRANSITION: ${oldStatus} -> ${to} | endpoint=${endpoint} | caller=${actor} | reason=${reason} | explicit=${!!explicitUserAction}`
+  );
+
+  return true;
+}
+
+// ── Teleconsultation Handlers ───────────────────────────────────────────────
 
 export const getTeleconsultations = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -136,55 +226,14 @@ export const getTeleconsultById = async (req: Request, res: Response, next: Next
   }
 };
 
+// ── GET Session Status (Strictly Read-Only) ──────────────────────────────────
 export const getTeleconsultSession = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const rawId = String(req.params.id);
     const id = resolveCanonicalSessionId(rawId);
     let presence = sessionPresenceStore.get(id);
 
-    // If local memory is empty or cold, synchronize presence from cloud relay
-    if (!presence || (!presence.patientJoined && !presence.doctorJoined)) {
-      try {
-        const relayRes = await fetch(`https://ntfy.sh/healthsure-tele-${encodeURIComponent(id)}/json?poll=1&since=5m`);
-        if (relayRes.ok) {
-          const text = await relayRes.text();
-          const lines = text.trim().split('\n');
-          for (const line of lines) {
-            if (!line) continue;
-            try {
-              const event = JSON.parse(line);
-              if (event.event === 'message' && event.message) {
-                const msg: SignalingMessage = JSON.parse(event.message);
-                if (msg && msg.type === 'presence' && msg.payload) {
-                  if (!presence) {
-                    presence = {
-                      sessionId: id,
-                      patientJoined: false,
-                      doctorJoined: false,
-                      status: 'UPCOMING',
-                      durationSeconds: 0,
-                    };
-                  }
-                  if (msg.payload.role === 'patient') {
-                    presence.patientJoined = true;
-                    presence.patientJoinedAt = msg.timestamp;
-                  }
-                  if (msg.payload.role === 'doctor') {
-                    presence.doctorJoined = true;
-                    presence.doctorJoinedAt = msg.timestamp;
-                  }
-                  if (presence.patientJoined && presence.doctorJoined) presence.status = 'CONNECTING';
-                  else if (presence.patientJoined) presence.status = 'WAITING_FOR_DOCTOR';
-                  else if (presence.doctorJoined) presence.status = 'WAITING_FOR_PATIENT';
-                }
-              }
-            } catch {}
-          }
-          if (presence) sessionPresenceStore.set(id, presence);
-        }
-      } catch {}
-    }
-
+    // If local memory is empty, initialize default UPCOMING presence without mutating
     if (!presence) {
       presence = {
         sessionId: id,
@@ -193,6 +242,7 @@ export const getTeleconsultSession = async (req: Request, res: Response, next: N
         status: 'UPCOMING',
         durationSeconds: 0,
       };
+      sessionPresenceStore.set(id, presence);
     }
 
     const tele = dataStore.teleconsultations.find((t) => t.id === id || t.appointmentId === id);
@@ -218,11 +268,13 @@ export const getTeleconsultSession = async (req: Request, res: Response, next: N
   }
 };
 
+// ── Join Teleconsultation (Caller / Callee enters room) ──────────────────────
 export const joinTeleconsult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const rawId = String(req.params.id);
     const id = resolveCanonicalSessionId(rawId);
     const { role } = req.body; // 'patient' | 'doctor'
+    const now = Date.now();
 
     let presence = sessionPresenceStore.get(id);
     if (!presence) {
@@ -236,7 +288,6 @@ export const joinTeleconsult = async (req: Request, res: Response, next: NextFun
       sessionPresenceStore.set(id, presence);
     }
 
-    const now = Date.now();
     if (role === 'patient') {
       presence.patientJoined = true;
       presence.patientJoinedAt = now;
@@ -245,23 +296,25 @@ export const joinTeleconsult = async (req: Request, res: Response, next: NextFun
       presence.doctorJoinedAt = now;
     }
 
+    let targetStatus: 'WAITING_FOR_DOCTOR' | 'WAITING_FOR_PATIENT' | 'CONNECTING' = 'WAITING_FOR_DOCTOR';
     if (presence.patientJoined && presence.doctorJoined) {
-      presence.status = 'CONNECTING';
+      targetStatus = 'CONNECTING';
     } else if (presence.patientJoined) {
-      presence.status = 'WAITING_FOR_DOCTOR';
+      targetStatus = 'WAITING_FOR_DOCTOR';
     } else if (presence.doctorJoined) {
-      presence.status = 'WAITING_FOR_PATIENT';
+      targetStatus = 'WAITING_FOR_PATIENT';
     }
 
-    // Update in dataStore (never mark completed)
-    const tele = dataStore.teleconsultations.find((t) => t.id === id || t.appointmentId === id);
-    if (tele) {
-      tele.status = presence.status;
-      tele.patientJoined = presence.patientJoined;
-      tele.doctorJoined = presence.doctorJoined;
-      tele.patientJoinedAt = presence.patientJoinedAt;
-      tele.doctorJoinedAt = presence.doctorJoinedAt;
-    }
+    // Apply authoritative state transition
+    transitionTeleconsultationState({
+      sessionId: id,
+      to: targetStatus,
+      role,
+      endpoint: '/join',
+      reason: `${role}_joined_room`,
+      actor: role,
+      explicitUserAction: true,
+    });
 
     // Broadcast presence signal
     const presenceMsg: SignalingMessage = {
@@ -273,7 +326,6 @@ export const joinTeleconsult = async (req: Request, res: Response, next: NextFun
       timestamp: now,
     };
 
-    // Update memory
     const messages = inMemorySignalingStore.get(id) || [];
     messages.push(presenceMsg);
     inMemorySignalingStore.set(id, messages);
@@ -284,8 +336,6 @@ export const joinTeleconsult = async (req: Request, res: Response, next: NextFun
       body: JSON.stringify(presenceMsg),
     }).catch(() => {});
 
-    console.log(`[Teleconsult] JOIN sessionId=${id} role=${role} status=${presence.status}`);
-
     res.json({
       success: true,
       data: presence,
@@ -295,33 +345,93 @@ export const joinTeleconsult = async (req: Request, res: Response, next: NextFun
   }
 };
 
-export const leaveTeleconsult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+// ── Live Teleconsultation (Idempotent confirmation of WebRTC P2P connection) ─
+export const liveTeleconsult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const rawId = String(req.params.id);
     const id = resolveCanonicalSessionId(rawId);
     const { role } = req.body;
+    const now = Date.now();
+
+    const transitioned = transitionTeleconsultationState({
+      sessionId: id,
+      to: 'LIVE',
+      role,
+      endpoint: '/live',
+      reason: 'webrtc_p2p_connected',
+      actor: role || 'webrtc',
+      explicitUserAction: true,
+    });
+
+    const presence = sessionPresenceStore.get(id);
+
+    // Broadcast live signal
+    const liveMsg: SignalingMessage = {
+      id: `sig-${now}-live-${role || 'peer'}`,
+      sessionId: id,
+      senderRole: (role || 'patient') as any,
+      type: 'live',
+      payload: { connected: true, timestamp: now },
+      timestamp: now,
+    };
+
+    const messages = inMemorySignalingStore.get(id) || [];
+    messages.push(liveMsg);
+    inMemorySignalingStore.set(id, messages);
+
+    fetch(`https://ntfy.sh/healthsure-tele-${encodeURIComponent(id)}/publish`, {
+      method: 'POST',
+      body: JSON.stringify(liveMsg),
+    }).catch(() => {});
+
+    res.json({
+      success: transitioned,
+      data: presence,
+      message: 'Teleconsultation is LIVE.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ── Leave Teleconsultation (Explicit End Call Only) ─────────────────────────
+export const leaveTeleconsult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const rawId = String(req.params.id);
+    const id = resolveCanonicalSessionId(rawId);
+    const { role, explicit, reason } = req.body;
+    const now = Date.now();
 
     let presence = sessionPresenceStore.get(id);
-    const now = Date.now();
-    if (presence) {
-      if (role === 'patient') presence.patientJoined = false;
-      if (role === 'doctor') presence.doctorJoined = false;
-      presence.status = 'ENDED';
-      presence.endedAt = now;
+    const currentStatus = presence ? presence.status : 'UPCOMING';
+
+    // If call is LIVE or CONNECTING and this is NOT an explicit user click, ignore accidental leave
+    if ((currentStatus === 'LIVE' || currentStatus === 'CONNECTING') && explicit !== true && reason !== 'user_clicked_end_call') {
+      console.warn(`[Teleconsult] IGNORED_IMPLICIT_LEAVE: sessionId=${id} role=${role} currentStatus=${currentStatus}`);
+      res.json({
+        success: false,
+        message: 'Implicit leave request ignored while consultation is active.',
+        data: presence,
+      });
+      return;
     }
 
-    const tele = dataStore.teleconsultations.find((t) => t.id === id || t.appointmentId === id);
-    if (tele) {
-      tele.status = 'ENDED';
-      tele.endedAt = new Date(now);
-    }
+    const transitioned = transitionTeleconsultationState({
+      sessionId: id,
+      to: 'ENDED',
+      role,
+      endpoint: '/leave',
+      reason: reason || 'user_explicit_end_call',
+      actor: role,
+      explicitUserAction: true,
+    });
 
     const leaveMsg: SignalingMessage = {
       id: `sig-${now}-leave-${role}`,
       sessionId: id,
       senderRole: role as any,
       type: 'leave',
-      payload: { role },
+      payload: { role, explicit: true },
       timestamp: now,
     };
 
@@ -331,10 +441,8 @@ export const leaveTeleconsult = async (req: Request, res: Response, next: NextFu
       body: JSON.stringify(leaveMsg),
     }).catch(() => {});
 
-    console.log(`[Teleconsult] LEAVE sessionId=${id} role=${role}`);
-
     res.json({
-      success: true,
+      success: transitioned,
       message: 'Left consultation session.',
     });
   } catch (error) {
@@ -369,15 +477,17 @@ export const sendSignal = async (req: Request, res: Response, next: NextFunction
       timestamp,
     };
 
-    console.log(`[Signal] POST sessionId=${id} senderRole=${senderRole} type=${normalizedType} id=${messageId}`);
-
-    // If signal is live or connected, update presence status
+    // If signal is live, transition to LIVE
     if (normalizedType === 'live') {
-      const presence = sessionPresenceStore.get(id);
-      if (presence) {
-        presence.status = 'LIVE';
-        if (!presence.connectedAt) presence.connectedAt = timestamp;
-      }
+      transitionTeleconsultationState({
+        sessionId: id,
+        to: 'LIVE',
+        role: senderRole,
+        endpoint: '/signal',
+        reason: 'received_live_signal',
+        actor: senderRole,
+        explicitUserAction: true,
+      });
     }
 
     // 1. In-process memory store
@@ -391,9 +501,7 @@ export const sendSignal = async (req: Request, res: Response, next: NextFunction
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newMsg),
-    }).catch((relayErr) => {
-      console.warn(`[Signal] Cloud relay publish warning: `, relayErr);
-    });
+    }).catch(() => {});
 
     // 3. PostgreSQL persistence (if Prisma is available)
     const prisma = getPrisma();
@@ -410,7 +518,7 @@ export const sendSignal = async (req: Request, res: Response, next: NextFunction
           },
         });
       } catch (dbErr) {
-        // Fallback to relay
+        // Relay fallback
       }
     }
 
@@ -502,8 +610,6 @@ export const getSignals = async (req: Request, res: Response, next: NextFunction
       })
       .sort((a, b) => a.timestamp - b.timestamp);
 
-    console.log(`[Signal] GET sessionId=${id} receiverRole=${role} signalsFound=${pending.length} since=${since}`);
-
     res.json({
       success: true,
       data: pending,
@@ -551,7 +657,16 @@ export const patchTeleconsult = async (req: Request, res: Response, next: NextFu
       return;
     }
 
-    if (status) item.status = status;
+    if (status) {
+      transitionTeleconsultationState({
+        sessionId: id,
+        to: status,
+        endpoint: '/patch',
+        reason: 'patch_teleconsult',
+        actor: 'api_caller',
+        explicitUserAction: true,
+      });
+    }
     if (networkMode) item.networkMode = networkMode;
     if (clinicalNotes) item.clinicalNotes = clinicalNotes;
     if (durationSeconds !== undefined) item.durationSeconds = durationSeconds;

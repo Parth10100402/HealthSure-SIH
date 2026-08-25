@@ -156,23 +156,30 @@ export const DoctorTeleconsultPage: React.FC = () => {
         </div>
       )}
 
-      {/* Real-time WebRTC Diagnostics Overlay for Dev Verification */}
-      <div className="p-3 rounded-2xl bg-slate-900 border border-slate-700 text-slate-300 font-mono text-[11px] flex flex-wrap items-center justify-between gap-3 shadow-md">
-        <div className="flex items-center gap-2">
-          <span className="text-emerald-400 font-bold">P2P Peer: {connectionState}</span>
+      {/* Real-time WebRTC Diagnostics Overlay */}
+      <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-700/80 text-slate-300 font-mono text-[11px] flex flex-wrap items-center justify-between gap-3 shadow-lg">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`px-2 py-0.5 rounded-md font-bold ${connectionState === 'connected' ? 'bg-emerald-950 text-emerald-300 border border-emerald-700' : 'bg-amber-950 text-amber-300 border border-amber-700'}`}>
+            SESSION: {connectionState === 'connected' ? 'LIVE' : connectionState.toUpperCase()}
+          </span>
+          <span className="px-2 py-0.5 rounded-md font-bold bg-blue-950 text-blue-300 border border-blue-700">
+            APPOINTMENT: CONFIRMED
+          </span>
+          <span>•</span>
+          <span className="text-emerald-400 font-semibold">P2P: {connectionState}</span>
           <span>•</span>
           <span>ICE: {iceConnectionState} (H:{candidateStats.host} S:{candidateStats.srflx} R:{candidateStats.relay})</span>
           <span>•</span>
-          <span>Sig: {signalingState}</span>
+          <span>SIGNAL: {signalingState}</span>
           <span>•</span>
-          <span>Session: {sessionId}</span>
+          <span>SESSION_ID: {sessionId}</span>
         </div>
         <div className="flex items-center gap-3">
-          <span>Local Tracks: Audio {localTracks.audio ? '✓' : '✗'} / Video {localTracks.video ? '✓' : '✗'}</span>
+          <span>LOCAL: {localTracks.audio ? '🎤' : '❌'}{localTracks.video ? '📹' : '❌'}</span>
           <span>•</span>
-          <span>Remote Tracks: Audio {remoteTracks.audio ? '✓' : '✗'} / Video {remoteTracks.video ? '✓' : '✗'}</span>
+          <span>REMOTE: {remoteTracks.audio ? '🔊' : '❌'}{remoteTracks.video ? '📺' : '❌'}</span>
           <span>•</span>
-          <span>Video Attached: {isRemoteAttached ? '✓' : '…'}</span>
+          <span>ATTACHED: {isRemoteAttached ? '✓' : '…'}</span>
         </div>
       </div>
 

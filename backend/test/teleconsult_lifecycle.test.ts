@@ -1,4 +1,4 @@
-// HealthSure — Production Teleconsultation Lifecycle & WebRTC State Machine Test Suite
+// HealthSure — Production Teleconsultation Lifecycle & Race-Condition Immunity Test Suite
 // backend/test/teleconsult_lifecycle.test.ts
 
 import http from 'http';
@@ -15,7 +15,7 @@ let doctorToken = '';
 
 async function runLifecycleTests() {
   console.log('====================================================');
-  console.log('🧪 HEALTHSURE — TELECONSULTATION LIFECYCLE TESTS');
+  console.log('🧪 HEALTHSURE — TELECONSULTATION RACE-IMMUNITY TESTS');
   console.log('====================================================\n');
 
   dataStore.initialize();
@@ -195,18 +195,18 @@ async function runLifecycleTests() {
     if (!iceRes.ok) throw new Error('Candidate dispatch failed');
   });
 
-  // 8. P2P Connected -> LIVE
-  await test('WebRTC Connected: Signal LIVE transitions session to LIVE with connectedAt', async () => {
-    const liveRes = await fetch(`${BASE_URL}/teleconsultations/tele-001/signal`, {
+  // 8. P2P Connected -> POST /live transitions to LIVE
+  await test('WebRTC Connected: POST /live transitions session to LIVE with connectedAt', async () => {
+    const liveRes = await fetch(`${BASE_URL}/teleconsultations/tele-001/live`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        senderRole: 'patient',
-        type: 'live',
-        payload: { connected: true },
-      }),
+      body: JSON.stringify({ role: 'patient', connected: true }),
     });
-    if (!liveRes.ok) throw new Error('Live signal dispatch failed');
+    if (!liveRes.ok) throw new Error('Live endpoint failed');
+    const liveJson = await liveRes.json();
+    if (!liveJson.success || liveJson.data.status !== 'LIVE') {
+      throw new Error(`Expected LIVE status, got: ${liveJson.data?.status}`);
+    }
 
     const sessionRes = await fetch(`${BASE_URL}/teleconsultations/tele-001/session`);
     const sessionJson = await sessionRes.json();
@@ -215,12 +215,43 @@ async function runLifecycleTests() {
     }
   });
 
-  // 9. End Call -> ENDED
-  await test('Call Termination: POST /leave marks status ENDED with endedAt', async () => {
+  // 9. Read-Only Polling does NOT mutate status
+  await test('Presence Polling: GET /session is strictly read-only and does not mutate LIVE status', async () => {
+    for (let i = 0; i < 5; i++) {
+      const sessionRes = await fetch(`${BASE_URL}/teleconsultations/tele-001/session`);
+      const sessionJson = await sessionRes.json();
+      if (sessionJson.data.status !== 'LIVE') {
+        throw new Error(`Polling mutated status! Expected LIVE, got ${sessionJson.data.status}`);
+      }
+    }
+  });
+
+  // 10. Stale / Implicit leave request is REJECTED while call is LIVE
+  await test('Race Safety: Implicit / stale leave request without explicit=true is ignored during LIVE call', async () => {
+    const staleLeaveRes = await fetch(`${BASE_URL}/teleconsultations/tele-001/leave`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'doctor' }), // missing explicit: true
+    });
+    const staleLeaveJson = await staleLeaveRes.json();
+    if (staleLeaveJson.success !== false) {
+      throw new Error('Implicit leave must be rejected while call is active');
+    }
+
+    // Verify session remains LIVE
+    const sessionRes = await fetch(`${BASE_URL}/teleconsultations/tele-001/session`);
+    const sessionJson = await sessionRes.json();
+    if (sessionJson.data.status !== 'LIVE') {
+      throw new Error(`Call must remain LIVE after stale leave attempt! Got ${sessionJson.data.status}`);
+    }
+  });
+
+  // 11. Explicit End Call -> ENDED
+  await test('Call Termination: POST /leave with explicit=true marks status ENDED with endedAt', async () => {
     const leaveRes = await fetch(`${BASE_URL}/teleconsultations/tele-001/leave`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: 'doctor' }),
+      body: JSON.stringify({ role: 'doctor', explicit: true, reason: 'user_clicked_end_call' }),
     });
     if (!leaveRes.ok) throw new Error('Leave request failed');
 
@@ -231,8 +262,20 @@ async function runLifecycleTests() {
     }
   });
 
-  // 10. Doctor Completes Clinical Consultation Workflow
-  await test('Clinical Completion: Doctor completes consultation -> Health Record & Follow-up generated', async () => {
+  // 12. Appointment Remains CONFIRMED after call ends (Separate Lifecycles)
+  await test('Appointment Independence: Appointment status remains CONFIRMED after call ends (not completed by leave)', async () => {
+    const aptRes = await fetch(`${BASE_URL}/appointments`, {
+      headers: { Authorization: `Bearer ${patientToken}` },
+    });
+    const aptJson = await aptRes.json();
+    const apt = aptJson.data.find((a: any) => a.id === 'apt-001' || a.appointmentId === 'HS-APT-1001');
+    if (!apt || apt.status.toLowerCase() !== 'confirmed') {
+      throw new Error(`Appointment status must remain confirmed after call end, got: ${apt?.status}`);
+    }
+  });
+
+  // 13. Doctor Completes Clinical Consultation Workflow
+  await test('Clinical Completion: Doctor completes consultation -> Appointment COMPLETED, Health Record & Follow-up generated', async () => {
     const compRes = await fetch(`${BASE_URL}/doctors/consultations/complete`, {
       method: 'POST',
       headers: {
@@ -256,6 +299,16 @@ async function runLifecycleTests() {
     const compJson = await compRes.json();
     if (!compRes.ok || !compJson.success) throw new Error('Consultation completion failed');
 
+    // Verify appointment is now COMPLETED
+    const aptRes = await fetch(`${BASE_URL}/appointments`, {
+      headers: { Authorization: `Bearer ${patientToken}` },
+    });
+    const aptJson = await aptRes.json();
+    const apt = aptJson.data.find((a: any) => a.id === 'apt-001' || a.appointmentId === 'HS-APT-1001');
+    if (!apt || apt.status.toLowerCase() !== 'completed') {
+      throw new Error(`Appointment must be COMPLETED after clinical complete, got: ${apt?.status}`);
+    }
+
     // Verify health record was created
     const hrRes = await fetch(`${BASE_URL}/health-records`, {
       headers: { Authorization: `Bearer ${patientToken}` },
@@ -274,7 +327,7 @@ async function runLifecycleTests() {
   server.close();
 
   console.log('\n====================================================');
-  console.log(`📊 TELECONSULTATION LIFECYCLE SUMMARY: ${passed} PASSED, ${failed} FAILED`);
+  console.log(`📊 TELECONSULTATION RACE-IMMUNITY SUMMARY: ${passed} PASSED, ${failed} FAILED`);
   console.log('====================================================');
 
   if (failed > 0) process.exit(1);

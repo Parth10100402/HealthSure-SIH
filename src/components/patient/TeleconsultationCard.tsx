@@ -361,20 +361,27 @@ export const TeleconsultRoomMock: React.FC<{
 
           {/* WebRTC Diagnostics Bar */}
           <div className="w-full pt-1">
-            <div className="px-3 py-1.5 rounded-xl bg-black/60 border border-[#087F6D]/30 text-[10px] font-mono text-slate-300 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
+            <div className="px-3 py-1.5 rounded-xl bg-black/70 border border-[#087F6D]/40 text-[10px] font-mono text-slate-300 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`px-1.5 py-0.5 rounded font-bold ${connectionState === 'connected' ? 'bg-emerald-950 text-emerald-300 border border-emerald-700' : 'bg-amber-950 text-amber-300 border border-amber-700'}`}>
+                  SESSION: {connectionState === 'connected' ? 'LIVE' : connectionState.toUpperCase()}
+                </span>
+                <span className="px-1.5 py-0.5 rounded font-bold bg-blue-950 text-blue-300 border border-blue-700">
+                  APPOINTMENT: CONFIRMED
+                </span>
+                <span>•</span>
                 <span className="text-emerald-400 font-bold">P2P: {connectionState}</span>
                 <span>•</span>
                 <span>ICE: {iceConnectionState} (H:{candidateStats.host} S:{candidateStats.srflx} R:{candidateStats.relay})</span>
                 <span>•</span>
-                <span>Sig: {signalingState}</span>
+                <span>SIGNAL: {signalingState}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span>Local: {localTracks.audio ? '🎤' : '❌'}{localTracks.video ? '📹' : '❌'}</span>
+                <span>LOCAL: {localTracks.audio ? '🎤' : '❌'}{localTracks.video ? '📹' : '❌'}</span>
                 <span>•</span>
-                <span>Remote: {remoteTracks.audio ? '🔊' : '❌'}{remoteTracks.video ? '📺' : '❌'}</span>
+                <span>REMOTE: {remoteTracks.audio ? '🔊' : '❌'}{remoteTracks.video ? '📺' : '❌'}</span>
                 <span>•</span>
-                <span>Attached: {isRemoteAttached ? '✓' : '…'}</span>
+                <span>ATTACHED: {isRemoteAttached ? '✓' : '…'}</span>
               </div>
             </div>
           </div>

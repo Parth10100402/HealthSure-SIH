@@ -1,4 +1,4 @@
-// HealthSure — Production WebRTC Engine with Full Tracing & STUN+TURN Relay
+// HealthSure — Production WebRTC Engine with Explicit End-Call Lifecycle & Multi-Tier Signaling
 // src/hooks/useWebRTC.ts
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -93,6 +93,11 @@ function getIceServers(): RTCConfiguration {
 }
 
 export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptions): UseWebRTCResult {
+  // Canonical session ID resolution
+  const canonicalSessionId = (!sessionId || sessionId === 'apt-001' || sessionId === 'apt1' || sessionId === 'HS-APT-1001' || sessionId === 'HS-APT-3012')
+    ? 'tele-001'
+    : sessionId;
+
   const [connectionState, setConnectionState] = useState<WebRTCConnectionState>('idle');
   const [iceConnectionState, setIceConnectionState] = useState<string>('new');
   const [signalingState, setSignalingState] = useState<string>('stable');
@@ -128,9 +133,11 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
 
   const pollingTimerRef = useRef<any>(null);
   const durationTimerRef = useRef<any>(null);
+  const disconnectGraceTimerRef = useRef<any>(null);
   const connectedAtRef = useRef<number | null>(null);
   const isStartedRef = useRef<boolean>(false);
   const isStartingRef = useRef<boolean>(false);
+  const isExplicitlyEndedRef = useRef<boolean>(false);
 
   // Pending ICE candidates queue (buffered until remoteDescription is set)
   const pendingCandidatesQueueRef = useRef<RTCIceCandidateInit[]>([]);
@@ -139,9 +146,9 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
   const log = useCallback(
     (action: string, detail: any = '') => {
       const now = new Date().toISOString().substring(11, 23);
-      console.log(`[${now}][${role.toUpperCase()}][${sessionId}][${pcIdRef.current}] ${action}`, detail);
+      console.log(`[${now}][${role.toUpperCase()}][${canonicalSessionId}][${pcIdRef.current}] ${action}`, detail);
     },
-    [role, sessionId]
+    [role, canonicalSessionId]
   );
 
   // 1. Drift-Free Call Duration Timer (Starts strictly on connection)
@@ -204,7 +211,7 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     async (type: string, payload: any) => {
       try {
         log(`SIGNAL_DISPATCH -> ${type}`);
-        await fetch(`${API_BASE_URL}/teleconsultations/${sessionId}/signal`, {
+        await fetch(`${API_BASE_URL}/teleconsultations/${canonicalSessionId}/signal`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ senderRole: role, type, payload }),
@@ -213,7 +220,7 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
         log(`SIGNAL_SEND_ERROR -> ${type}`, e);
       }
     },
-    [sessionId, role, log]
+    [canonicalSessionId, role, log]
   );
 
   // Helper to flush queued ICE candidates once remote description exists
@@ -237,12 +244,11 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     [log]
   );
 
-  // Stop all media tracks and tear down peer connection
-  const endCall = useCallback(() => {
-    log('END_CALL_INVOKED');
+  // Teardown local media, timers, and peer connection WITHOUT sending /leave to backend
+  const cleanupLocalResources = useCallback(() => {
+    log('CLEANUP_LOCAL_RESOURCES');
     isStartedRef.current = false;
     isStartingRef.current = false;
-    connectedAtRef.current = null;
 
     if (pollingTimerRef.current) {
       clearInterval(pollingTimerRef.current);
@@ -252,13 +258,10 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
       clearInterval(durationTimerRef.current);
       durationTimerRef.current = null;
     }
-
-    // Inform backend
-    fetch(`${API_BASE_URL}/teleconsultations/${sessionId}/leave`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role }),
-    }).catch(() => {});
+    if (disconnectGraceTimerRef.current) {
+      clearTimeout(disconnectGraceTimerRef.current);
+      disconnectGraceTimerRef.current = null;
+    }
 
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -276,13 +279,29 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     remoteStreamRef.current = null;
     setLocalStream(null);
     setRemoteStream(null);
-    setConnectionState('ended');
     setIsRemoteVideoActive(false);
     setIsRemoteAudioActive(false);
     setIsRemoteAttached(false);
-    setCallDuration(0);
     pendingCandidatesQueueRef.current = [];
-  }, [sessionId, role, log]);
+  }, [log]);
+
+  // Explicit End Call (invoked ONLY on user click)
+  const endCall = useCallback(() => {
+    log('EXPLICIT_END_CALL_INVOKED_BY_USER');
+    isExplicitlyEndedRef.current = true;
+    connectedAtRef.current = null;
+    setCallDuration(0);
+    setConnectionState('ended');
+
+    // Notify backend of explicit leave
+    fetch(`${API_BASE_URL}/teleconsultations/${canonicalSessionId}/leave`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role, explicit: true, reason: 'user_clicked_end_call' }),
+    }).catch(() => {});
+
+    cleanupLocalResources();
+  }, [canonicalSessionId, role, cleanupLocalResources, log]);
 
   // Main startup routine
   const startCall = useCallback(async () => {
@@ -291,6 +310,7 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
       return;
     }
     isStartingRef.current = true;
+    isExplicitlyEndedRef.current = false;
     pcIdRef.current = `pc-${Math.random().toString(36).substring(2, 7)}`;
 
     log('START_CALL_INITIATED');
@@ -298,10 +318,10 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     setErrorMessage(null);
 
     // 1. Join Presence on Backend
-    fetch(`${API_BASE_URL}/teleconsultations/${sessionId}/join`, {
+    fetch(`${API_BASE_URL}/teleconsultations/${canonicalSessionId}/join`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role }),
+      body: JSON.stringify({ role, explicit: true }),
     }).catch(() => {});
 
     // 2. Secure Context Check
@@ -350,153 +370,167 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     // Attach local stream to preview element
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = stream;
-      localVideoRef.current.play().catch(() => {});
+      localVideoRef.current.muted = true;
     }
 
-    // 4. Create Inbound Remote Stream container
+    // 4. Instantiate WebRTC Peer Connection
+    const config = getIceServers();
+    log('INSTANTIATING_PEER_CONNECTION', { iceServerCount: config.iceServers?.length });
+    const pc = new RTCPeerConnection(config);
+    peerConnectionRef.current = pc;
+
+    // Attach local media tracks
+    stream.getTracks().forEach((track) => {
+      pc.addTrack(track, stream);
+      log(`LOCAL_TRACK_ADDED -> ${track.kind}`);
+    });
+
+    // Create remote media stream container
     const inboundStream = new MediaStream();
     remoteStreamRef.current = inboundStream;
     setRemoteStream(inboundStream);
 
-    // 5. Create RTCPeerConnection with STUN + TURN config
-    const rtcConfig = getIceServers();
-    const pc = new RTCPeerConnection(rtcConfig);
-    peerConnectionRef.current = pc;
-    isStartedRef.current = true;
-    isStartingRef.current = false;
-
-    log('RTC_PEER_CONNECTION_CREATED', {
-      iceServersCount: rtcConfig.iceServers?.length,
-    });
-
-    // Add local tracks to peer connection
-    stream.getTracks().forEach((track) => {
-      pc.addTrack(track, stream);
-      log(`LOCAL_TRACK_ADDED -> ${track.kind} (id=${track.id})`);
-    });
-
-    // Explicitly add transceivers if needed
-    log('TRANSCEIVERS_INSPECT', pc.getTransceivers().map((t) => ({ mid: t.mid, dir: t.direction })));
-
-    // 6. Handle incoming remote media tracks (ontrack)
+    // Handle inbound remote media tracks
     pc.ontrack = (event) => {
-      const track = event.track;
-      log(`ONTRACK_EVENT -> kind=${track.kind}, state=${track.readyState}, id=${track.id}`);
+      log(`ONTRACK_RECEIVED -> ${event.track.kind}`, { id: event.track.id });
+      inboundStream.addTrack(event.track);
 
-      if (track) {
-        if (!inboundStream.getTracks().some((t) => t.id === track.id)) {
-          inboundStream.addTrack(track);
-          log(`REMOTE_TRACK_ATTACHED_TO_STREAM -> ${track.kind}, totalTracks=${inboundStream.getTracks().length}`);
-        }
+      setRemoteTracks((prev) => ({
+        audio: prev.audio || event.track.kind === 'audio',
+        video: prev.video || event.track.kind === 'video',
+      }));
 
-        if (track.kind === 'video') {
-          setIsRemoteVideoActive(true);
-          setRemoteTracks((prev) => ({ ...prev, video: true }));
-        }
-        if (track.kind === 'audio') {
-          setIsRemoteAudioActive(true);
-          setRemoteTracks((prev) => ({ ...prev, audio: true }));
-        }
-
-        track.onunmute = () => {
-          log(`TRACK_UNMUTED -> ${track.kind}`);
-          if (track.kind === 'video') {
-            setIsRemoteVideoActive(true);
-            setRemoteTracks((prev) => ({ ...prev, video: true }));
-          }
-          if (track.kind === 'audio') {
-            setIsRemoteAudioActive(true);
-            setRemoteTracks((prev) => ({ ...prev, audio: true }));
-          }
-        };
+      if (event.track.kind === 'video') {
+        setIsRemoteVideoActive(true);
+      }
+      if (event.track.kind === 'audio') {
+        setIsRemoteAudioActive(true);
       }
 
-      // Attach immediately to video element
       if (remoteVideoRef.current) {
-        if (remoteVideoRef.current.srcObject !== inboundStream) {
-          remoteVideoRef.current.srcObject = inboundStream;
-          setIsRemoteAttached(true);
-        }
+        remoteVideoRef.current.srcObject = inboundStream;
+        setIsRemoteAttached(true);
         remoteVideoRef.current.play().catch(() => {});
       }
     };
 
-    // 7. ICE Candidate Gathering & Classification
+    // Candidate gathering handler
     pc.onicecandidate = (event) => {
       if (event.candidate && event.candidate.candidate) {
-        const c = event.candidate;
-        const candStr = c.candidate || '';
-        let candType = 'host';
-        if (candStr.includes(' typ srflx')) candType = 'srflx';
-        else if (candStr.includes(' typ relay')) candType = 'relay';
-        else if (candStr.includes(' typ prflx')) candType = 'prflx';
+        const typeMatch = event.candidate.candidate.match(/typ\s+(\w+)/);
+        const candType = typeMatch ? typeMatch[1] : 'host';
 
         setCandidateStats((prev) => ({
           ...prev,
-          [candType]: (prev[candType as keyof typeof prev] || 0) + 1,
+          [candType as keyof typeof prev]: (prev[candType as keyof typeof prev] || 0) + 1,
         }));
 
-        log(`ICE_CANDIDATE_GATHERED -> type=${candType}, protocol=${c.protocol}, sdpMid=${c.sdpMid}`);
-        sendSignalMessage('candidate', c.toJSON ? c.toJSON() : c);
+        log(`ICE_CANDIDATE_GATHERED (typ=${candType})`, {
+          sdpMid: event.candidate.sdpMid,
+          candidate: event.candidate.candidate.substring(0, 60),
+        });
+
+        sendSignalMessage('candidate', event.candidate.toJSON());
       } else {
-        log('ICE_GATHERING_COMPLETE (null candidate)');
+        log('ICE_GATHERING_COMPLETED_OR_NULL');
       }
     };
 
-    pc.onicegatheringstatechange = () => {
-      log(`ICE_GATHERING_STATE -> ${pc.iceGatheringState}`);
+    // ICE Connection State Change
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState;
+      log(`ICE_CONNECTION_STATE_CHANGE -> ${state}`);
+      setIceConnectionState(state);
+
+      if (state === 'connected' || state === 'completed') {
+        if (disconnectGraceTimerRef.current) {
+          clearTimeout(disconnectGraceTimerRef.current);
+          disconnectGraceTimerRef.current = null;
+        }
+        setConnectionState('connected');
+
+        // Notify backend of confirmed LIVE state
+        fetch(`${API_BASE_URL}/teleconsultations/${canonicalSessionId}/live`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role, connected: true }),
+        }).catch(() => {});
+      } else if (state === 'disconnected') {
+        log('ICE_TRANSIENT_DISCONNECTED (Starting 20s grace period)');
+        if (!disconnectGraceTimerRef.current) {
+          disconnectGraceTimerRef.current = setTimeout(() => {
+            if (peerConnectionRef.current && peerConnectionRef.current.iceConnectionState === 'disconnected') {
+              log('ICE_DISCONNECT_GRACE_EXPIRED -> FAILED');
+              setConnectionState('failed');
+            }
+          }, 20000);
+        }
+      }
     };
 
-    // 8. Monitor Connection States
+    // Peer Connection State Change
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
-      log(`PEER_CONNECTION_STATE -> ${state}`);
+      log(`PC_CONNECTION_STATE_CHANGE -> ${state}`);
+
       if (state === 'connected') {
+        if (disconnectGraceTimerRef.current) {
+          clearTimeout(disconnectGraceTimerRef.current);
+          disconnectGraceTimerRef.current = null;
+        }
         setConnectionState('connected');
+
+        // Atomically transition backend to LIVE
+        fetch(`${API_BASE_URL}/teleconsultations/${canonicalSessionId}/live`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role, connected: true }),
+        }).catch(() => {});
       } else if (state === 'connecting') {
         setConnectionState('connecting');
-      } else if (state === 'disconnected') {
-        setConnectionState('disconnected');
       } else if (state === 'failed') {
+        log('PC_CONNECTION_STATE_FAILED');
         setConnectionState('failed');
       }
     };
 
-    pc.oniceconnectionstatechange = () => {
-      const iceState = pc.iceConnectionState;
-      setIceConnectionState(iceState);
-      log(`ICE_CONNECTION_STATE -> ${iceState}`);
-      if (iceState === 'connected' || iceState === 'completed') {
-        setConnectionState('connected');
-      } else if (iceState === 'failed') {
-        log('ICE_CONNECTION_FAILED (Falling back/retry available)');
-      }
-    };
-
     pc.onsignalingstatechange = () => {
+      log(`SIGNALING_STATE_CHANGE -> ${pc.signalingState}`);
       setSignalingState(pc.signalingState);
-      log(`SIGNALING_STATE -> ${pc.signalingState}`);
     };
 
-    setConnectionState('signaling');
-
-    // 9. Deterministic Role Negotiation: Patient = Offerer
+    // 5. Patient initiates SDP Offer
     if (role === 'patient') {
       try {
         log('PATIENT_CREATING_OFFER');
-        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+        setConnectionState('signaling');
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true,
+        });
         await pc.setLocalDescription(offer);
-        log('PATIENT_LOCAL_DESCRIPTION_SET (Offer)', { type: offer.type });
+        log('PATIENT_LOCAL_DESCRIPTION_SET (Offer)');
         await sendSignalMessage('offer', offer);
-      } catch (e) {
-        log('PATIENT_OFFER_CREATION_FAILED', e);
+      } catch (offerErr) {
+        log('PATIENT_OFFER_CREATION_FAILED', offerErr);
+        setConnectionState('failed');
+        isStartingRef.current = false;
+        return;
       }
+    } else {
+      setConnectionState('signaling');
+      log('DOCTOR_WAITING_FOR_OFFER');
     }
 
-    // 10. Robust Zero-Loss Polling Loop
+    isStartedRef.current = true;
+    isStartingRef.current = false;
+
+    // 6. Start Multi-Tier Signaling Polling Loop
+    if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
+
     pollingTimerRef.current = setInterval(async () => {
-      if (!peerConnectionRef.current) return;
       const currentPC = peerConnectionRef.current;
+      if (!currentPC || isExplicitlyEndedRef.current) return;
 
       // Periodic check to ensure remote video attachment
       if (remoteStreamRef.current && remoteVideoRef.current) {
@@ -513,7 +547,7 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
       }
 
       try {
-        const res = await fetch(`${API_BASE_URL}/teleconsultations/${sessionId}/signal?role=${role}`);
+        const res = await fetch(`${API_BASE_URL}/teleconsultations/${canonicalSessionId}/signal?role=${role}`);
         if (res.ok) {
           const json = await res.json();
           if (json.success && Array.isArray(json.data) && json.data.length > 0) {
@@ -586,10 +620,19 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
                   }
                 }
               }
-              // Peer left
+              // Peer confirmed LIVE
+              else if (msg.type === 'live') {
+                log('REMOTE_PEER_CONFIRMED_LIVE');
+              }
+              // Peer left (ONLY if explicit)
               else if (msg.type === 'leave') {
-                log('PEER_LEFT_NOTIFICATION');
-                setConnectionState('ended');
+                if (msg.payload && msg.payload.explicit === true) {
+                  log('PEER_EXPLICITLY_ENDED_CALL');
+                  setConnectionState('ended');
+                  cleanupLocalResources();
+                } else {
+                  log('IGNORED_STALE_OR_IMPLICIT_LEAVE_SIGNAL', msg.payload);
+                }
               }
             }
           }
@@ -598,15 +641,15 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
         // Polling network warning
       }
     }, 1000);
-  }, [sessionId, role, sendSignalMessage, flushQueuedCandidates, isRemoteVideoActive, log]);
+  }, [canonicalSessionId, role, sendSignalMessage, flushQueuedCandidates, isRemoteVideoActive, cleanupLocalResources, log]);
 
   const retryConnection = useCallback(async () => {
     log('RETRY_CONNECTION_REQUESTED');
-    endCall();
+    cleanupLocalResources();
     setTimeout(() => {
       startCall();
     }, 600);
-  }, [endCall, startCall, log]);
+  }, [cleanupLocalResources, startCall, log]);
 
   const toggleCamera = useCallback(() => {
     if (localStreamRef.current) {
@@ -645,14 +688,16 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     });
   }, [log]);
 
+  // React Lifecycle: Start on autoStart, Clean up local resources on unmount (WITHOUT /leave)
   useEffect(() => {
     if (autoStart) {
       startCall();
     }
     return () => {
-      endCall();
+      // Clean up local hardware & sockets ONLY, do NOT send /leave to backend on unmount
+      cleanupLocalResources();
     };
-  }, [autoStart, startCall, endCall]);
+  }, [autoStart, startCall, cleanupLocalResources]);
 
   return {
     connectionState,
