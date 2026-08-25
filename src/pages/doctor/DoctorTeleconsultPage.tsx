@@ -24,6 +24,8 @@ export const DoctorTeleconsultPage: React.FC = () => {
 
   const {
     connectionState,
+    iceConnectionState,
+    signalingState,
     localVideoRef,
     remoteVideoRef,
     isCameraOn,
@@ -32,6 +34,9 @@ export const DoctorTeleconsultPage: React.FC = () => {
     isLowBandwidthMode,
     callDuration,
     errorMessage,
+    localTracks,
+    remoteTracks,
+    isRemoteAttached,
     toggleCamera,
     toggleMic,
     toggleLowBandwidth,
@@ -105,6 +110,26 @@ export const DoctorTeleconsultPage: React.FC = () => {
         </div>
       )}
 
+      {/* Real-time WebRTC Diagnostics Overlay for Dev Verification */}
+      <div className="p-3 rounded-2xl bg-slate-900 border border-slate-700 text-slate-300 font-mono text-[11px] flex flex-wrap items-center justify-between gap-3 shadow-md">
+        <div className="flex items-center gap-2">
+          <span className="text-emerald-400 font-bold">P2P Peer: {connectionState}</span>
+          <span>•</span>
+          <span>ICE: {iceConnectionState}</span>
+          <span>•</span>
+          <span>Sig: {signalingState}</span>
+          <span>•</span>
+          <span>Session: {sessionId}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span>Local Tracks: Audio {localTracks.audio ? '✓' : '✗'} / Video {localTracks.video ? '✓' : '✗'}</span>
+          <span>•</span>
+          <span>Remote Tracks: Audio {remoteTracks.audio ? '✓' : '✗'} / Video {remoteTracks.video ? '✓' : '✗'}</span>
+          <span>•</span>
+          <span>Video Attached: {isRemoteAttached ? '✓' : '…'}</span>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ── VIDEO FEED AREA ────────────────────────────────────────────── */}
         <div className="lg:col-span-2 space-y-4">
@@ -130,17 +155,23 @@ export const DoctorTeleconsultPage: React.FC = () => {
                 ref={remoteVideoRef}
                 autoPlay
                 playsInline
-                className={`w-full h-full object-cover ${isRemoteVideoActive && !isLowBandwidthMode ? 'block' : 'hidden'}`}
+                className={`w-full h-full object-cover relative z-10 transition-opacity duration-300 ${isRemoteVideoActive && !isLowBandwidthMode ? 'opacity-100 block' : 'opacity-0 hidden'}`}
               />
 
               {(!isRemoteVideoActive || isLowBandwidthMode) && (
-                <div className="text-center space-y-2">
+                <div className="text-center space-y-2 z-0">
                   <div className="w-24 h-24 rounded-full bg-[#087F6D]/40 border-2 border-[#4FD1C5] mx-auto flex items-center justify-center text-white text-3xl font-bold">
-                    RS
+                    PS
                   </div>
                   <div className="text-white font-bold text-sm">Parth Sharma (Patient)</div>
                   <div className="text-slate-400 text-xs">
-                    {isLowBandwidthMode ? '🎙️ Audio Priority Mode Active (2G)' : 'Facilitated by Sister Anjali (ANM, PHC Khed)'}
+                    {isLowBandwidthMode
+                      ? '🎙️ Audio Priority Mode Active (2G)'
+                      : connectionState === 'connected'
+                      ? 'Media connected • Streaming video'
+                      : connectionState === 'connecting'
+                      ? 'Connecting to Patient…'
+                      : 'Waiting for Patient to join…'}
                   </div>
                 </div>
               )}

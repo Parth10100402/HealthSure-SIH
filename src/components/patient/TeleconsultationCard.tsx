@@ -98,6 +98,8 @@ export const TeleconsultRoomMock: React.FC<{
   const t = useTranslation();
   const {
     connectionState,
+    iceConnectionState,
+    signalingState,
     localVideoRef,
     remoteVideoRef,
     isCameraOn,
@@ -106,6 +108,9 @@ export const TeleconsultRoomMock: React.FC<{
     isLowBandwidthMode,
     callDuration,
     errorMessage,
+    localTracks,
+    remoteTracks,
+    isRemoteAttached,
     toggleCamera,
     toggleMic,
     toggleLowBandwidth,
@@ -167,12 +172,12 @@ export const TeleconsultRoomMock: React.FC<{
               ref={remoteVideoRef}
               autoPlay
               playsInline
-              className={`w-full h-full object-cover ${isRemoteVideoActive && !isLowBandwidthMode ? 'block' : 'hidden'}`}
+              className={`w-full h-full object-cover relative z-10 transition-opacity duration-300 ${isRemoteVideoActive && !isLowBandwidthMode ? 'opacity-100 block' : 'opacity-0 hidden'}`}
             />
 
             {/* Doctor placeholder when remote video is not yet transmitting or in low bandwidth mode */}
             {(!isRemoteVideoActive || isLowBandwidthMode) && (
-              <div className="text-center p-6 space-y-3">
+              <div className="text-center p-6 space-y-3 z-0">
                 <div className="w-20 h-20 rounded-full bg-[#087F6D] text-white font-bold text-2xl flex items-center justify-center mx-auto shadow-lg">
                   AM
                 </div>
@@ -181,7 +186,13 @@ export const TeleconsultRoomMock: React.FC<{
                   <p className="text-xs text-[#A7D9CE]">{teleconsult.speciality}</p>
                 </div>
                 <div className="inline-block px-3 py-1 rounded-full bg-emerald-950/60 text-emerald-300 text-[11px] font-semibold border border-emerald-800">
-                  {isLowBandwidthMode ? `🎙️ ${t.audio2gMode}` : '👨‍⚕️ Doctor Connected via WebRTC'}
+                  {isLowBandwidthMode
+                    ? `🎙️ ${t.audio2gMode}`
+                    : connectionState === 'connected'
+                    ? 'Media connected • Streaming video'
+                    : connectionState === 'connecting'
+                    ? 'Connecting to Doctor…'
+                    : 'Waiting for Doctor to join…'}
                 </div>
               </div>
             )}
@@ -283,6 +294,26 @@ export const TeleconsultRoomMock: React.FC<{
             ) : (
               <span>WebRTC Peer-to-Peer Protocol Active</span>
             )}
+          </div>
+
+          {/* WebRTC Diagnostics Bar */}
+          <div className="w-full pt-1">
+            <div className="px-3 py-1.5 rounded-xl bg-black/60 border border-[#087F6D]/30 text-[10px] font-mono text-slate-300 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-400 font-bold">P2P: {connectionState}</span>
+                <span>•</span>
+                <span>ICE: {iceConnectionState}</span>
+                <span>•</span>
+                <span>Sig: {signalingState}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span>Local: {localTracks.audio ? '🎤' : '❌'}{localTracks.video ? '📹' : '❌'}</span>
+                <span>•</span>
+                <span>Remote: {remoteTracks.audio ? '🔊' : '❌'}{remoteTracks.video ? '📺' : '❌'}</span>
+                <span>•</span>
+                <span>Attached: {isRemoteAttached ? '✓' : '…'}</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-// HealthSure — Real WebRTC Peer-to-Peer Teleconsultation Hook (Robust & Queued)
+// HealthSure — Real WebRTC Peer-to-Peer Teleconsultation Hook
 // src/hooks/useWebRTC.ts
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -20,6 +20,8 @@ export interface UseWebRTCOptions {
 
 export interface UseWebRTCResult {
   connectionState: WebRTCConnectionState;
+  iceConnectionState: string;
+  signalingState: string;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
   localVideoRef: React.RefObject<HTMLVideoElement | null>;
@@ -31,6 +33,9 @@ export interface UseWebRTCResult {
   isLowBandwidthMode: boolean;
   callDuration: number;
   errorMessage: string | null;
+  localTracks: { audio: boolean; video: boolean };
+  remoteTracks: { audio: boolean; video: boolean };
+  isRemoteAttached: boolean;
   toggleCamera: () => void;
   toggleMic: () => void;
   toggleLowBandwidth: () => void;
@@ -52,8 +57,12 @@ const RTC_CONFIG: RTCConfiguration = {
 
 export function useWebRTC({ sessionId, role, autoStart = true }: UseWebRTCOptions): UseWebRTCResult {
   const [connectionState, setConnectionState] = useState<WebRTCConnectionState>('idle');
+  const [iceConnectionState, setIceConnectionState] = useState<string>('new');
+  const [signalingState, setSignalingState] = useState<string>('stable');
+  
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  
   const [isCameraOn, setIsCameraOn] = useState<boolean>(true);
   const [isMicOn, setIsMicOn] = useState<boolean>(true);
   const [isRemoteVideoActive, setIsRemoteVideoActive] = useState<boolean>(false);
@@ -62,11 +71,16 @@ export function useWebRTC({ sessionId, role, autoStart = true }: UseWebRTCOption
   const [callDuration, setCallDuration] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [localTracks, setLocalTracks] = useState<{ audio: boolean; video: boolean }>({ audio: false, video: false });
+  const [remoteTracks, setRemoteTracks] = useState<{ audio: boolean; video: boolean }>({ audio: false, video: false });
+  const [isRemoteAttached, setIsRemoteAttached] = useState<boolean>(false);
+
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
   const pollingTimerRef = useRef<any>(null);
   const durationTimerRef = useRef<any>(null);
   const lastProcessedSignalTimeRef = useRef<number>(0);
@@ -76,11 +90,52 @@ export function useWebRTC({ sessionId, role, autoStart = true }: UseWebRTCOption
   const pendingCandidatesQueueRef = useRef<RTCIceCandidateInit[]>([]);
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
 
+  // 1. Dedicated Call Duration Timer based strictly on connectionState === 'connected'
+  useEffect(() => {
+    if (connectionState === 'connected') {
+      console.log(`[WebRTC - ${role} - ${sessionId}] Connection is connected! Starting timer.`);
+      if (!durationTimerRef.current) {
+        durationTimerRef.current = setInterval(() => {
+          setCallDuration((prev) => prev + 1);
+        }, 1000);
+      }
+    } else {
+      if (durationTimerRef.current) {
+        clearInterval(durationTimerRef.current);
+        durationTimerRef.current = null;
+      }
+    }
+
+    return () => {
+      if (durationTimerRef.current) {
+        clearInterval(durationTimerRef.current);
+        durationTimerRef.current = null;
+      }
+    };
+  }, [connectionState, role, sessionId]);
+
+  // 2. Persistent Remote Video Element Attachment Effect
+  useEffect(() => {
+    const videoEl = remoteVideoRef.current;
+    const stream = remoteStreamRef.current;
+
+    if (videoEl && stream) {
+      if (videoEl.srcObject !== stream) {
+        console.log(`[WebRTC - ${role} - ${sessionId}] [Effect] Attaching remote MediaStream to video element`);
+        videoEl.srcObject = stream;
+        setIsRemoteAttached(true);
+      }
+      videoEl.play().catch((err) => {
+        console.warn(`[WebRTC - ${role} - ${sessionId}] Remote video play warning:`, err);
+      });
+    }
+  }, [remoteStream, isRemoteVideoActive, connectionState, role, sessionId]);
+
   // Send signal message to backend mailbox
   const sendSignalMessage = useCallback(
     async (type: string, payload: any) => {
       try {
-        console.log(`[WebRTC - ${role} - ${sessionId}] SIGNAL_SENT ->`, type);
+        console.log(`[WebRTC - ${role} - ${sessionId}] SIGNAL_SENT -> ${type}`);
         await fetch(`${API_BASE_URL}/teleconsultations/${sessionId}/signal`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -138,11 +193,13 @@ export function useWebRTC({ sessionId, role, autoStart = true }: UseWebRTCOption
       peerConnectionRef.current = null;
     }
 
+    remoteStreamRef.current = null;
     setLocalStream(null);
     setRemoteStream(null);
     setConnectionState('disconnected');
     setIsRemoteVideoActive(false);
     setIsRemoteAudioActive(false);
+    setIsRemoteAttached(false);
     pendingCandidatesQueueRef.current = [];
   }, [sessionId, role]);
 
@@ -175,6 +232,7 @@ export function useWebRTC({ sessionId, role, autoStart = true }: UseWebRTCOption
       });
       setIsCameraOn(true);
       setIsMicOn(true);
+      setLocalTracks({ audio: true, video: true });
     } catch (mediaErr: any) {
       console.warn(`[WebRTC - ${role} - ${sessionId}] Video+Audio getUserMedia failed, retrying audio only...`, mediaErr);
       try {
@@ -184,6 +242,7 @@ export function useWebRTC({ sessionId, role, autoStart = true }: UseWebRTCOption
         });
         setIsCameraOn(false);
         setIsMicOn(true);
+        setLocalTracks({ audio: true, video: false });
       } catch (audioErr: any) {
         console.error(`[WebRTC - ${role} - ${sessionId}] Microphone / Camera access was denied:`, audioErr);
         setConnectionState('failed');
@@ -204,55 +263,81 @@ export function useWebRTC({ sessionId, role, autoStart = true }: UseWebRTCOption
       localVideoRef.current.play().catch(() => {});
     }
 
-    // 3. Create RTCPeerConnection
+    // 3. Create Inbound Remote Stream container
+    const inboundStream = new MediaStream();
+    remoteStreamRef.current = inboundStream;
+    setRemoteStream(inboundStream);
+
+    // 4. Create RTCPeerConnection
     const pc = new RTCPeerConnection(RTC_CONFIG);
     peerConnectionRef.current = pc;
 
     // Add local tracks to peer connection
     stream.getTracks().forEach((track) => {
       pc.addTrack(track, stream);
+      console.log(`[WebRTC - ${role} - ${sessionId}] Local track added to pc: ${track.kind} (id: ${track.id})`);
     });
 
-    // Inbound remote stream container
-    const inboundStream = new MediaStream();
-    setRemoteStream(inboundStream);
-
-    // 4. Handle incoming remote media tracks
+    // 5. Handle incoming remote media tracks (ontrack)
     pc.ontrack = (event) => {
-      console.log(`[WebRTC - ${role} - ${sessionId}] TRACK_RECEIVED -> kind:`, event.track.kind);
-      event.streams[0].getTracks().forEach((track) => {
+      console.log(`[WebRTC - ${role} - ${sessionId}] ontrack event fired! kind: ${event.track.kind}, id: ${event.track.id}, readyState: ${event.track.readyState}`);
+      
+      const track = event.track;
+      if (track) {
         if (!inboundStream.getTracks().some((t) => t.id === track.id)) {
           inboundStream.addTrack(track);
+          console.log(`[WebRTC - ${role} - ${sessionId}] Added ${track.kind} track to inbound MediaStream`);
         }
-        if (track.kind === 'video') setIsRemoteVideoActive(true);
-        if (track.kind === 'audio') setIsRemoteAudioActive(true);
-      });
 
+        if (track.kind === 'video') {
+          setIsRemoteVideoActive(true);
+          setRemoteTracks((prev) => ({ ...prev, video: true }));
+        }
+        if (track.kind === 'audio') {
+          setIsRemoteAudioActive(true);
+          setRemoteTracks((prev) => ({ ...prev, audio: true }));
+        }
+
+        track.onunmute = () => {
+          console.log(`[WebRTC - ${role} - ${sessionId}] Remote track onunmute: ${track.kind}`);
+          if (track.kind === 'video') {
+            setIsRemoteVideoActive(true);
+            setRemoteTracks((prev) => ({ ...prev, video: true }));
+          }
+          if (track.kind === 'audio') {
+            setIsRemoteAudioActive(true);
+            setRemoteTracks((prev) => ({ ...prev, audio: true }));
+          }
+        };
+      }
+
+      // If remote video element is available, attach immediately
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = inboundStream;
+        if (remoteVideoRef.current.srcObject !== inboundStream) {
+          remoteVideoRef.current.srcObject = inboundStream;
+          setIsRemoteAttached(true);
+          console.log(`[WebRTC - ${role} - ${sessionId}] Attached inbound stream to remoteVideoRef.current`);
+        }
         remoteVideoRef.current.play().catch((err) => {
-          console.warn(`[WebRTC - ${role} - ${sessionId}] Remote video autoplay error:`, err);
+          console.warn(`[WebRTC - ${role} - ${sessionId}] Remote video play warning:`, err);
         });
       }
     };
 
-    // 5. ICE Candidate Gathering
+    // 6. ICE Candidate Gathering
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log(`[WebRTC - ${role} - ${sessionId}] Local ICE candidate generated ->`, event.candidate.type || 'candidate');
+        console.log(`[WebRTC - ${role} - ${sessionId}] Local ICE candidate -> ${event.candidate.type || 'candidate'}`);
         sendSignalMessage('candidate', event.candidate);
       }
     };
 
-    // 6. Monitor Connection States
+    // 7. Monitor Connection States
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
-      console.log(`[WebRTC - ${role} - ${sessionId}] PEER_CONNECTION_STATE ->`, state);
+      console.log(`[WebRTC - ${role} - ${sessionId}] PEER_CONNECTION_STATE -> ${state}`);
       if (state === 'connected') {
         setConnectionState('connected');
-        if (!durationTimerRef.current) {
-          durationTimerRef.current = setInterval(() => setCallDuration((d) => d + 1), 1000);
-        }
       } else if (state === 'connecting') {
         setConnectionState('connecting');
       } else if (state === 'disconnected') {
@@ -263,15 +348,24 @@ export function useWebRTC({ sessionId, role, autoStart = true }: UseWebRTCOption
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log(`[WebRTC - ${role} - ${sessionId}] ICE_CONNECTION_STATE ->`, pc.iceConnectionState);
-      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+      const iceState = pc.iceConnectionState;
+      setIceConnectionState(iceState);
+      console.log(`[WebRTC - ${role} - ${sessionId}] ICE_CONNECTION_STATE -> ${iceState}`);
+      if (iceState === 'connected' || iceState === 'completed') {
         setConnectionState('connected');
+      } else if (iceState === 'failed') {
+        console.warn(`[WebRTC - ${role} - ${sessionId}] ICE Connection Failed`);
       }
+    };
+
+    pc.onsignalingstatechange = () => {
+      setSignalingState(pc.signalingState);
+      console.log(`[WebRTC - ${role} - ${sessionId}] SIGNALING_STATE -> ${pc.signalingState}`);
     };
 
     setConnectionState('signaling');
 
-    // 7. Role-Specific Negotiation
+    // 8. Role-Specific Negotiation
     if (role === 'patient') {
       try {
         console.log(`[WebRTC - ${role} - ${sessionId}] Creating SDP Offer...`);
@@ -284,10 +378,24 @@ export function useWebRTC({ sessionId, role, autoStart = true }: UseWebRTCOption
       }
     }
 
-    // 8. Signaling Polling Loop
+    // 9. Signaling Polling Loop
     pollingTimerRef.current = setInterval(async () => {
       if (!peerConnectionRef.current) return;
       const currentPC = peerConnectionRef.current;
+
+      // Periodic check to ensure remote video attachment
+      if (remoteStreamRef.current && remoteVideoRef.current) {
+        const vTracks = remoteStreamRef.current.getVideoTracks();
+        const hasLiveVideo = vTracks.some((t) => t.readyState === 'live');
+        if (hasLiveVideo && !isRemoteVideoActive) {
+          setIsRemoteVideoActive(true);
+        }
+        if (remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
+          remoteVideoRef.current.srcObject = remoteStreamRef.current;
+          setIsRemoteAttached(true);
+          remoteVideoRef.current.play().catch(() => {});
+        }
+      }
 
       try {
         const res = await fetch(
@@ -365,7 +473,7 @@ export function useWebRTC({ sessionId, role, autoStart = true }: UseWebRTCOption
         // Polling network issue
       }
     }, 1000);
-  }, [sessionId, role, sendSignalMessage, flushQueuedCandidates]);
+  }, [sessionId, role, sendSignalMessage, flushQueuedCandidates, isRemoteVideoActive]);
 
   const toggleCamera = useCallback(() => {
     if (localStreamRef.current) {
@@ -412,6 +520,8 @@ export function useWebRTC({ sessionId, role, autoStart = true }: UseWebRTCOption
 
   return {
     connectionState,
+    iceConnectionState,
+    signalingState,
     localStream,
     remoteStream,
     localVideoRef,
@@ -423,6 +533,9 @@ export function useWebRTC({ sessionId, role, autoStart = true }: UseWebRTCOption
     isLowBandwidthMode,
     callDuration,
     errorMessage,
+    localTracks,
+    remoteTracks,
+    isRemoteAttached,
     toggleCamera,
     toggleMic,
     toggleLowBandwidth,
