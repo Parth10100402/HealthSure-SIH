@@ -57,7 +57,7 @@ export const TeleconsultationCard: React.FC<{ teleconsult: Teleconsultation }> =
         </div>
 
         <div className="pt-2 border-t border-[#DDE8E4]/60 dark:border-[#1A3A3A] flex items-center gap-2">
-          {teleconsult.status === 'upcoming' && (
+          {['upcoming', 'scheduled', 'waiting', 'in_consultation', 'confirmed'].includes((teleconsult.status || '').toLowerCase()) && (
             <button
               type="button"
               onClick={() => setRoomOpen(true)}
@@ -68,7 +68,7 @@ export const TeleconsultationCard: React.FC<{ teleconsult: Teleconsultation }> =
             </button>
           )}
 
-          {teleconsult.status === 'completed' && (
+          {(teleconsult.status || '').toLowerCase() === 'completed' && (
             <button
               type="button"
               onClick={() => alert(`Teleconsultation ${teleconsult.id} completed. Digital prescription is stored in Health Records.`)}

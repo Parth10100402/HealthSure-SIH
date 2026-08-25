@@ -2,6 +2,7 @@
 // frontend/src/components/patient/AppointmentCard.tsx
 
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Calendar,
   Building2,
@@ -25,6 +26,7 @@ export const AppointmentCard: React.FC<AppointmentCardProps> = ({
   onCancelled,
 }) => {
   const t = useTranslation();
+  const navigate = useNavigate();
   const [isCancelling, setIsCancelling] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
@@ -105,6 +107,17 @@ export const AppointmentCard: React.FC<AppointmentCardProps> = ({
 
         {/* Action buttons */}
         <div className="flex items-center gap-2 pt-1">
+          {appointment.type === 'teleconsultation' && appointment.status === 'confirmed' && (
+            <button
+              type="button"
+              onClick={() => navigate('/patient/teleconsultation')}
+              className="py-2 px-3 rounded-xl bg-[#087F6D] hover:bg-[#073B3A] text-white text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Video className="w-3.5 h-3.5" />
+              <span>{t.enterRoomBtn}</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => setDetailsOpen(true)}

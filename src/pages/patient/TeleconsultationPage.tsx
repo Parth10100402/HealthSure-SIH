@@ -20,8 +20,18 @@ export const TeleconsultationPage: React.FC = () => {
     });
   }, []);
 
+  const isUpcoming = (status: string) => {
+    const s = (status || '').toLowerCase();
+    return s === 'upcoming' || s === 'scheduled' || s === 'waiting' || s === 'in_consultation' || s === 'confirmed';
+  };
+
+  const isCompleted = (status: string) => {
+    const s = (status || '').toLowerCase();
+    return s === 'completed' || s === 'cancelled';
+  };
+
   const filtered = teleconsults.filter((item) =>
-    activeTab === 'upcoming' ? item.status === 'upcoming' || item.status === 'waiting' : item.status === 'completed'
+    activeTab === 'upcoming' ? isUpcoming(item.status) : isCompleted(item.status)
   );
 
   return (
@@ -44,7 +54,7 @@ export const TeleconsultationPage: React.FC = () => {
               : 'text-[#64748B] dark:text-[#7B9EA8]'
           }`}
         >
-          {t.tabUpcoming} ({teleconsults.filter((i) => i.status === 'upcoming' || i.status === 'waiting').length})
+          {t.tabUpcoming} ({teleconsults.filter((i) => isUpcoming(i.status)).length})
         </button>
         <button
           type="button"
@@ -55,7 +65,7 @@ export const TeleconsultationPage: React.FC = () => {
               : 'text-[#64748B] dark:text-[#7B9EA8]'
           }`}
         >
-          {t.completed} ({teleconsults.filter((i) => i.status === 'completed').length})
+          {t.completed} ({teleconsults.filter((i) => isCompleted(i.status)).length})
         </button>
       </div>
 

@@ -102,7 +102,7 @@ export const patientService = {
             date: a.date,
             time: a.startTime,
             status: a.status.toLowerCase(),
-            type: a.mode === 'OUTREACH' ? 'outreach' : a.mode === 'TELECONSULTATION' ? 'teleconsult' : 'in-person',
+            type: a.mode === 'OUTREACH' ? 'outreach' : a.mode === 'TELECONSULTATION' ? 'teleconsultation' : 'in-person',
             tokenNumber: a.token || 'TKN-01',
             roomNumber: 'OPD-102',
             reasonForVisit: a.reasonForVisit || 'Specialist Consultation',
@@ -383,15 +383,25 @@ export const patientService = {
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
+          const mapTeleStatus = (s: string): Teleconsultation['status'] => {
+            const upper = (s || '').toUpperCase();
+            if (upper === 'SCHEDULED' || upper === 'UPCOMING' || upper === 'CONFIRMED') return 'upcoming';
+            if (upper.includes('WAITING')) return 'waiting';
+            if (upper === 'IN_PROGRESS' || upper === 'IN_CONSULTATION') return 'in_consultation';
+            if (upper === 'COMPLETED') return 'completed';
+            return 'upcoming';
+          };
+
           return json.data.map((t: any) => ({
             id: t.id,
+            appointmentId: t.appointmentId || 'apt-001',
             doctorName: t.doctorName || 'Dr. Ananya Mehta',
             doctorQualification: 'MD, DM (Cardiology)',
             speciality: t.speciality || 'Cardiology',
             hospital: t.hospital || 'District Hospital Ratnagiri',
             date: t.date,
             time: t.time,
-            status: t.status.toLowerCase(),
+            status: mapTeleStatus(t.status),
             sessionUrl: `https://teleconsult.healthsure.gov.in/room/${t.id}`,
             instructions: t.instructions,
             isLowBandwidthMode: t.networkMode === 'ADAPTIVE_2G_AUDIO',
