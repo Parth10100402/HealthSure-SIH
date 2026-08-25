@@ -383,6 +383,19 @@ model Teleconsultation {
   @@map("teleconsultations")
 }
 
+model TeleconsultSignal {
+  id         String   @id @default(uuid())
+  sessionId  String   @map("session_id")
+  senderRole String   @map("sender_role")
+  type       String   @map("signal_type")
+  payload    String   @db.Text
+  timestamp  BigInt   @default(0)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([sessionId, timestamp])
+  @@map("teleconsult_signals")
+}
+
 model FollowUp {
   id             String          @id @default(uuid())
   patientId      String
