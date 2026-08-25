@@ -111,10 +111,12 @@ export const TeleconsultRoomMock: React.FC<{
     localTracks,
     remoteTracks,
     isRemoteAttached,
+    peerJoined,
     toggleCamera,
     toggleMic,
     toggleLowBandwidth,
     endCall,
+    retryConnection,
   } = useWebRTC({
     sessionId: teleconsult.id || 'tele-001',
     role: 'patient',
@@ -132,6 +134,17 @@ export const TeleconsultRoomMock: React.FC<{
     return `${min}:${sec}`;
   };
 
+  const getStatusText = () => {
+    if (connectionState === 'connected') return t.liveConsultation;
+    if (connectionState === 'connecting') return 'Connecting to Doctor…';
+    if (connectionState === 'signaling') {
+      return peerJoined ? 'Doctor in Room — Establishing Link…' : 'Waiting for Doctor to join…';
+    }
+    if (connectionState === 'failed') return 'Connection Failed — Retry';
+    if (connectionState === 'ended') return 'Consultation Ended';
+    return t.liveConsultation;
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 select-none">
       <div className="w-full max-w-3xl bg-[#072424] text-white rounded-3xl border border-[#087F6D]/40 shadow-2xl overflow-hidden flex flex-col h-[88vh] animate-in fade-in zoom-in-95 duration-150">
@@ -139,15 +152,32 @@ export const TeleconsultRoomMock: React.FC<{
         <div className="px-5 py-3.5 bg-[#051818] border-b border-[#087F6D]/30 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <span className={`w-2.5 h-2.5 rounded-full ${connectionState === 'connected' ? 'bg-emerald-400 animate-ping' : 'bg-amber-400 animate-pulse'}`}></span>
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  connectionState === 'connected'
+                    ? 'bg-emerald-400 animate-ping'
+                    : connectionState === 'failed'
+                    ? 'bg-rose-500'
+                    : 'bg-amber-400 animate-pulse'
+                }`}
+              />
               <span className="text-xs font-bold tracking-wider uppercase text-emerald-400">
-                {connectionState === 'connected' ? t.liveConsultation : connectionState === 'connecting' ? 'Connecting to Doctor…' : connectionState === 'signaling' ? 'Establishing P2P Link…' : t.liveConsultation}
+                {getStatusText()}
               </span>
             </div>
             <span className="text-xs text-[#A7D9CE] font-mono">({formatTimer(callDuration)})</span>
           </div>
 
           <div className="flex items-center gap-3">
+            {connectionState === 'failed' && (
+              <button
+                type="button"
+                onClick={retryConnection}
+                className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer transition-all"
+              >
+                Retry
+              </button>
+            )}
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#087F6D]/30 text-xs text-[#4FD1C5] border border-[#087F6D]/40">
               <Signal className="w-3.5 h-3.5" />
               <span>{isLowBandwidthMode ? t.audio2gMode : connectionState === 'connected' ? 'WebRTC P2P (Live)' : t.hdVideoActive}</span>

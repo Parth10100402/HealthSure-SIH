@@ -383,12 +383,11 @@ export const patientService = {
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
-          const mapTeleStatus = (s: string): Teleconsultation['status'] => {
+          const mapTeleStatus = (s: string, doctorJoined?: boolean): Teleconsultation['status'] => {
             const upper = (s || '').toUpperCase();
-            if (upper === 'SCHEDULED' || upper === 'UPCOMING' || upper === 'CONFIRMED') return 'upcoming';
-            if (upper.includes('WAITING')) return 'waiting';
-            if (upper === 'IN_PROGRESS' || upper === 'IN_CONSULTATION') return 'in_consultation';
-            if (upper === 'COMPLETED') return 'completed';
+            if (upper === 'COMPLETED' || upper === 'ENDED') return 'completed';
+            if (upper === 'CONNECTED' || upper === 'IN_PROGRESS' || upper === 'IN_CONSULTATION') return 'in_consultation';
+            if (doctorJoined || upper === 'WAITING_FOR_PATIENT' || upper === 'CONNECTING') return 'waiting';
             return 'upcoming';
           };
 
@@ -401,7 +400,7 @@ export const patientService = {
             hospital: t.hospital || 'District Hospital Ratnagiri',
             date: t.date,
             time: t.time,
-            status: mapTeleStatus(t.status),
+            status: mapTeleStatus(t.status, t.doctorJoined),
             sessionUrl: `https://teleconsult.healthsure.gov.in/room/${t.id}`,
             instructions: t.instructions,
             isLowBandwidthMode: t.networkMode === 'ADAPTIVE_2G_AUDIO',
@@ -414,6 +413,17 @@ export const patientService = {
       // Fallback
     }
     return [...mockTeleconsultations];
+  },
+
+  async getTeleconsultSession(id: string) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/teleconsultations/${encodeURIComponent(id)}/session`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const json = await res.json();
+        return json.data;
+      }
+    } catch {}
+    return null;
   },
 
   async getFollowUps(): Promise<FollowUp[]> {

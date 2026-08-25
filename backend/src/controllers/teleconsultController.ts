@@ -1,9 +1,33 @@
-// HealthSure — Teleconsultation Controller (Persistent WebRTC Signaling)
+// HealthSure — Rebuilt Serverless-Safe Teleconsultation Controller
 // backend/src/controllers/teleconsultController.ts
 
 import type { Request, Response, NextFunction } from 'express';
 import { dataStore } from '../db/store.js';
 import { getPrisma } from '../db/prisma.js';
+
+// ── WebRTC Signaling Message Interface ──────────────────────────────────────
+interface SignalingMessage {
+  id: string;
+  sessionId: string;
+  senderRole: 'patient' | 'doctor';
+  type: 'offer' | 'answer' | 'candidate' | 'presence' | 'leave';
+  payload: any;
+  timestamp: number;
+}
+
+// In-process memory store for fast local lookup
+const inMemorySignalingStore = new Map<string, SignalingMessage[]>();
+
+// Session presence tracking
+interface SessionPresence {
+  patientJoined: boolean;
+  doctorJoined: boolean;
+  patientJoinedAt?: number;
+  doctorJoinedAt?: number;
+  status: 'SCHEDULED' | 'WAITING_FOR_DOCTOR' | 'WAITING_FOR_PATIENT' | 'CONNECTING' | 'CONNECTED' | 'COMPLETED';
+}
+
+const sessionPresenceStore = new Map<string, SessionPresence>();
 
 export const getTeleconsultations = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -17,15 +41,19 @@ export const getTeleconsultations = async (req: Request, res: Response, next: Ne
       list = list.filter((t) => t.doctorId === doctorId);
     }
 
-    // Enrich with appointment date/time and names
+    // Enrich with appointment date/time, presence, and names
     const enriched = list.map((t) => {
       const apt = dataStore.appointments.find((a) => a.id === t.appointmentId);
       const doc = dataStore.doctors.find((d) => d.id === t.doctorId);
       const pat = dataStore.patients.find((p) => p.id === t.patientId);
-
       const hosp = doc ? dataStore.facilities.find((f) => f.id === doc.hospitalId) : null;
+      const presence = sessionPresenceStore.get(t.id);
+
       return {
         ...t,
+        status: presence ? presence.status : t.status,
+        patientJoined: presence ? presence.patientJoined : false,
+        doctorJoined: presence ? presence.doctorJoined : false,
         date: apt ? apt.date : '2026-08-28',
         time: apt ? apt.startTime : '10:30 AM',
         doctorName: doc ? doc.name : 'Dr. Ananya Mehta',
@@ -60,11 +88,15 @@ export const getTeleconsultById = async (req: Request, res: Response, next: Next
     const doc = dataStore.doctors.find((d) => d.id === t.doctorId);
     const pat = dataStore.patients.find((p) => p.id === t.patientId);
     const hosp = doc ? dataStore.facilities.find((f) => f.id === doc.hospitalId) : null;
+    const presence = sessionPresenceStore.get(t.id);
 
     res.json({
       success: true,
       data: {
         ...t,
+        status: presence ? presence.status : t.status,
+        patientJoined: presence ? presence.patientJoined : false,
+        doctorJoined: presence ? presence.doctorJoined : false,
         date: apt ? apt.date : '2026-08-28',
         time: apt ? apt.startTime : '10:30 AM',
         doctorName: doc ? doc.name : 'Dr. Ananya Mehta',
@@ -80,19 +112,137 @@ export const getTeleconsultById = async (req: Request, res: Response, next: Next
   }
 };
 
-// ── WebRTC Persistent & Synchronized Signaling Mailbox ────────────────────────
-interface SignalingMessage {
-  id: string;
-  sessionId: string;
-  senderRole: 'patient' | 'doctor';
-  type: 'offer' | 'answer' | 'candidate' | 'status' | 'leave';
-  payload: any;
-  timestamp: number;
-}
+export const getTeleconsultSession = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = String(req.params.id);
+    const presence = sessionPresenceStore.get(id) || {
+      patientJoined: false,
+      doctorJoined: false,
+      status: 'SCHEDULED',
+    };
 
-// In-process memory store for fast local lookup
-const inMemorySignalingStore = new Map<string, SignalingMessage[]>();
+    const tele = dataStore.teleconsultations.find((t) => t.id === id || t.appointmentId === id);
 
+    res.json({
+      success: true,
+      data: {
+        sessionId: id,
+        status: presence.status,
+        patientJoined: presence.patientJoined,
+        doctorJoined: presence.doctorJoined,
+        durationSeconds: tele ? tele.durationSeconds : 0,
+        networkMode: tele ? tele.networkMode : 'ADAPTIVE_2G_AUDIO',
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const joinTeleconsult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = String(req.params.id);
+    const { role } = req.body; // 'patient' | 'doctor'
+
+    let presence = sessionPresenceStore.get(id);
+    if (!presence) {
+      presence = {
+        patientJoined: false,
+        doctorJoined: false,
+        status: 'SCHEDULED',
+      };
+      sessionPresenceStore.set(id, presence);
+    }
+
+    if (role === 'patient') {
+      presence.patientJoined = true;
+      presence.patientJoinedAt = Date.now();
+    } else if (role === 'doctor') {
+      presence.doctorJoined = true;
+      presence.doctorJoinedAt = Date.now();
+    }
+
+    if (presence.patientJoined && presence.doctorJoined) {
+      presence.status = 'CONNECTING';
+    } else if (presence.patientJoined) {
+      presence.status = 'WAITING_FOR_DOCTOR';
+    } else if (presence.doctorJoined) {
+      presence.status = 'WAITING_FOR_PATIENT';
+    }
+
+    // Broadcast presence signal
+    const timestamp = Date.now();
+    const presenceMsg: SignalingMessage = {
+      id: `sig-${timestamp}-presence-${role}`,
+      sessionId: id,
+      senderRole: role as any,
+      type: 'presence',
+      payload: { role, status: presence.status },
+      timestamp,
+    };
+
+    // Update memory
+    const messages = inMemorySignalingStore.get(id) || [];
+    messages.push(presenceMsg);
+    inMemorySignalingStore.set(id, messages);
+
+    // Relay via ntfy.sh
+    fetch(`https://ntfy.sh/healthsure-tele-${encodeURIComponent(id)}/publish`, {
+      method: 'POST',
+      body: JSON.stringify(presenceMsg),
+    }).catch(() => {});
+
+    console.log(`[Teleconsult] JOIN sessionId=${id} role=${role} status=${presence.status}`);
+
+    res.json({
+      success: true,
+      data: presence,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const leaveTeleconsult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = String(req.params.id);
+    const { role } = req.body;
+
+    let presence = sessionPresenceStore.get(id);
+    if (presence) {
+      if (role === 'patient') presence.patientJoined = false;
+      if (role === 'doctor') presence.doctorJoined = false;
+      presence.status = 'COMPLETED';
+    }
+
+    const timestamp = Date.now();
+    const leaveMsg: SignalingMessage = {
+      id: `sig-${timestamp}-leave-${role}`,
+      sessionId: id,
+      senderRole: role as any,
+      type: 'leave',
+      payload: { role },
+      timestamp,
+    };
+
+    // Relay via ntfy.sh
+    fetch(`https://ntfy.sh/healthsure-tele-${encodeURIComponent(id)}/publish`, {
+      method: 'POST',
+      body: JSON.stringify(leaveMsg),
+    }).catch(() => {});
+
+    console.log(`[Teleconsult] LEAVE sessionId=${id} role=${role}`);
+
+    res.json({
+      success: true,
+      message: 'Left consultation session.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ── WebRTC Serverless Multi-Tier Signaling Engine ───────────────────────────
 export const sendSignal = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = String(req.params.id);
@@ -115,16 +265,24 @@ export const sendSignal = async (req: Request, res: Response, next: NextFunction
       timestamp,
     };
 
-    // Diagnostic logging (No private SDP or media logged)
     console.log(`[Signal] POST sessionId=${id} senderRole=${senderRole} type=${type} id=${messageId}`);
 
-    // 1. Update in-memory store
+    // 1. In-process memory store
     const messages = inMemorySignalingStore.get(id) || [];
     const fresh = messages.filter((m) => timestamp - m.timestamp < 300000); // 5 min TTL
     fresh.push(newMsg);
     inMemorySignalingStore.set(id, fresh);
 
-    // 2. Persist to PostgreSQL if Prisma is available
+    // 2. Global Serverless Pub/Sub Relay (ntfy.sh)
+    fetch(`https://ntfy.sh/healthsure-tele-${encodeURIComponent(id)}/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newMsg),
+    }).catch((relayErr) => {
+      console.warn(`[Signal] Cloud relay publish warning: `, relayErr);
+    });
+
+    // 3. PostgreSQL persistence (if Prisma is available)
     const prisma = getPrisma();
     if (prisma) {
       try {
@@ -139,7 +297,7 @@ export const sendSignal = async (req: Request, res: Response, next: NextFunction
           },
         });
       } catch (dbErr) {
-        console.warn(`[Signal] Prisma persistence warning (falling back to memory): `, dbErr);
+        // Fallback to relay
       }
     }
 
@@ -158,47 +316,78 @@ export const getSignals = async (req: Request, res: Response, next: NextFunction
     const role = (req.query.role as string) || '';
     const since = parseInt((req.query.since as string) || '0', 10);
 
-    let pending: SignalingMessage[] = [];
+    const mergedMap = new Map<string, SignalingMessage>();
 
-    // 1. Query PostgreSQL if Prisma is available
+    // 1. Gather from in-memory cache
+    const memoryMsgs = inMemorySignalingStore.get(id) || [];
+    memoryMsgs.forEach((m) => mergedMap.set(m.id, m));
+
+    // 2. Gather from global Serverless Pub/Sub Relay (ntfy.sh)
+    try {
+      const relayRes = await fetch(`https://ntfy.sh/healthsure-tele-${encodeURIComponent(id)}/json?poll=1&since=5m`);
+      if (relayRes.ok) {
+        const text = await relayRes.text();
+        const lines = text.trim().split('\n');
+        for (const line of lines) {
+          if (!line) continue;
+          try {
+            const event = JSON.parse(line);
+            if (event.event === 'message' && event.message) {
+              const msg: SignalingMessage = JSON.parse(event.message);
+              if (msg && msg.id && msg.sessionId === id) {
+                mergedMap.set(msg.id, msg);
+                // Also backfill local memory
+                if (!memoryMsgs.some((m) => m.id === msg.id)) {
+                  memoryMsgs.push(msg);
+                }
+              }
+            }
+          } catch {}
+        }
+        inMemorySignalingStore.set(id, memoryMsgs);
+      }
+    } catch (relayErr) {
+      // Memory fallback
+    }
+
+    // 3. Gather from PostgreSQL if Prisma is available
     const prisma = getPrisma();
     if (prisma) {
       try {
         const rows = await prisma.teleconsultSignal.findMany({
           where: {
             sessionId: id,
-            ...(role ? { senderRole: { not: role } } : {}),
             timestamp: { gt: BigInt(since) },
           },
           orderBy: { timestamp: 'asc' },
         });
 
-        pending = rows.map((r) => ({
-          id: r.id,
-          sessionId: r.sessionId,
-          senderRole: r.senderRole as any,
-          type: r.type as any,
-          payload: JSON.parse(r.payload),
-          timestamp: Number(r.timestamp),
-        }));
-      } catch (dbErr) {
-        // Fallback to in-memory store if DB query encounters an issue
-        const messages = inMemorySignalingStore.get(id) || [];
-        pending = messages.filter((m) => {
-          const matchRole = !role || m.senderRole !== role;
-          const matchTime = m.timestamp > since;
-          return matchRole && matchTime;
+        rows.forEach((r) => {
+          if (!mergedMap.has(r.id)) {
+            mergedMap.set(r.id, {
+              id: r.id,
+              sessionId: r.sessionId,
+              senderRole: r.senderRole as any,
+              type: r.type as any,
+              payload: JSON.parse(r.payload),
+              timestamp: Number(r.timestamp),
+            });
+          }
         });
+      } catch (dbErr) {
+        // Continue with merged map
       }
-    } else {
-      // Memory store fallback
-      const messages = inMemorySignalingStore.get(id) || [];
-      pending = messages.filter((m) => {
+    }
+
+    // Filter by role and timestamp
+    const allSignals = Array.from(mergedMap.values());
+    const pending = allSignals
+      .filter((m) => {
         const matchRole = !role || m.senderRole !== role;
         const matchTime = m.timestamp > since;
         return matchRole && matchTime;
-      });
-    }
+      })
+      .sort((a, b) => a.timestamp - b.timestamp);
 
     console.log(`[Signal] GET sessionId=${id} receiverRole=${role} signalsFound=${pending.length} since=${since}`);
 
@@ -216,6 +405,7 @@ export const clearSignals = async (req: Request, res: Response, next: NextFuncti
   try {
     const id = String(req.params.id);
     inMemorySignalingStore.delete(id);
+    sessionPresenceStore.delete(id);
 
     const prisma = getPrisma();
     if (prisma) {
@@ -223,9 +413,7 @@ export const clearSignals = async (req: Request, res: Response, next: NextFuncti
         await prisma.teleconsultSignal.deleteMany({
           where: { sessionId: id },
         });
-      } catch {
-        // Ignore reset errors
-      }
+      } catch {}
     }
 
     res.json({

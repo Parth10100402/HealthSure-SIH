@@ -45,6 +45,7 @@ export const DoctorTeleconsultPage: React.FC = () => {
     toggleLowBandwidth,
     endCall,
     startCall,
+    retryConnection,
   } = useWebRTC({
     sessionId,
     role: 'doctor',
@@ -213,8 +214,19 @@ export const DoctorTeleconsultPage: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 text-[11px] font-mono">
-                  Duration: {formatTimer(callDuration)}
+                <div className="flex items-center gap-2">
+                  {connectionState === 'failed' && (
+                    <button
+                      type="button"
+                      onClick={retryConnection}
+                      className="px-2.5 py-1 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer transition-all"
+                    >
+                      Retry Connection
+                    </button>
+                  )}
+                  <div className="bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 text-[11px] font-mono">
+                    Duration: {formatTimer(callDuration)}
+                  </div>
                 </div>
               </div>
 

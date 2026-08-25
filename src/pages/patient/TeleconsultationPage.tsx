@@ -14,10 +14,16 @@ export const TeleconsultationPage: React.FC = () => {
   const [teleconsults, setTeleconsults] = useState<Teleconsultation[]>([]);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
 
-  useEffect(() => {
+  const fetchTeleconsults = () => {
     patientService.getTeleconsultations().then((data) => {
       setTeleconsults(data);
     });
+  };
+
+  useEffect(() => {
+    fetchTeleconsults();
+    const interval = setInterval(fetchTeleconsults, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   const isUpcoming = (status: string) => {
