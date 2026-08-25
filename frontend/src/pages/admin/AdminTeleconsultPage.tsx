@@ -22,7 +22,7 @@ interface TeleLog {
 const mockTeleLogs: TeleLog[] = [
   {
     id: 'TC-LOG-01',
-    patientId: 'HS-10248 (Ramesh Sharma)',
+    patientId: 'HS-10248 (Parth Sharma)',
     doctorName: 'Dr. Ananya Mehta',
     speciality: 'Cardiology',
     originKiosk: 'PHC Khed Tele-Kiosk',

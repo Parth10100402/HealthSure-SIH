@@ -1,4 +1,4 @@
-// HealthSure — Help & Community Assistance Page (Fully Localized)
+// HealthSure — Help & Community Assistance Page
 // frontend/src/pages/patient/HelpSupportPage.tsx
 
 import React, { useState } from 'react';
@@ -21,7 +21,7 @@ export const HelpSupportPage: React.FC = () => {
   const faqs = [
     {
       q: 'How does Specialist Outreach work in rural areas?',
-      a: `Experienced doctors (Cardiologists, Orthopaedics, Eye Specialists) visit PHC Khed on scheduled dates. You can book a free slot in advance through this portal or via HealthSure Voice (${HEALTHSURE_IVR_NUMBER}). This eliminates the need to travel 45+ km to the District Hospital.`,
+      a: `Experienced doctors visit PHC Khed on scheduled dates. You can book a free slot in advance through this portal or via HealthSure Voice (${HEALTHSURE_IVR_NUMBER}). This eliminates the need to travel 45+ km to the District Hospital.`,
     },
     {
       q: 'What should I do after my PHC doctor issues a Referral?',
@@ -33,11 +33,11 @@ export const HelpSupportPage: React.FC = () => {
     },
     {
       q: 'Are medicines and diagnostic tests at the PHC free of cost?',
-      a: 'Yes, all essential medicines (Amlodipine, Metformin, ORS, IFA) and routine diagnostic tests (CBC, Blood Glucose, ECG) listed in the HealthSure catalog are provided free of cost under National Health Mission guidelines at PHC Khed.',
+      a: 'Yes, all essential medicines and routine diagnostic tests listed in the HealthSure catalog are provided free of cost under National Health Mission guidelines at PHC Khed.',
     },
     {
       q: 'How do I join a Teleconsultation call with poor network?',
-      a: 'Our teleconsultation video room automatically detects slow cellular connectivity and switches into low-bandwidth 2G audio mode. You can also visit your nearest PHC Tele-Kiosk where the health worker will facilitate the remote specialist call.',
+      a: 'Our teleconsultation video room automatically detects slow cellular connectivity and switches into low-bandwidth 2G audio mode.',
     },
   ];
 
@@ -48,67 +48,64 @@ export const HelpSupportPage: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           {t.helpPageTitle}
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-          {t.helpPageDesc}
-        </p>
       </div>
 
-      {/* ── TOLL-FREE VOICE CALL BANNER ───────────────────────────────────── */}
-      <div className="rounded-3xl bg-gradient-to-r from-[#073B3A] via-[#0A4B43] to-[#0D5950] text-white p-6 sm:p-7 shadow-sm space-y-4">
+      {/* Helpline Banner */}
+      <div className="rounded-3xl bg-gradient-to-r from-[#073B3A] via-[#0A4B43] to-[#0D5950] text-white p-5 sm:p-6 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1 max-w-xl">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 text-white text-xs font-semibold backdrop-blur-xs">
-              <PhoneCall className="w-3.5 h-3.5 text-[#4FD1C5]" />
-              <span>{t.tollFreeHelpline} (24x7)</span>
-            </div>
-            <h2 className="text-xl font-bold">{t.callHelpline}</h2>
-            <p className="text-xs text-[#A7D9CE] leading-relaxed">
-              {t.panelFeature4}
-            </p>
+            <h2 className="text-lg sm:text-xl font-bold">{t.callHelpline}: <span className="font-mono text-[#4FD1C5]">{HEALTHSURE_IVR_NUMBER}</span></h2>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setVoiceModalOpen(true)}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#4FD1C5] hover:bg-[#38b2ac] text-[#073B3A] text-xs sm:text-sm font-bold px-5 py-3 transition-all shadow-md shrink-0 cursor-pointer"
-          >
-            <PhoneCall className="w-4 h-4" />
-            <span>{HEALTHSURE_IVR_NUMBER}</span>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href={`tel:${HEALTHSURE_IVR_NUMBER}`}
+              role="button"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs sm:text-sm font-bold px-5 py-3 transition-all shadow-md cursor-pointer"
+            >
+              <PhoneCall className="w-4 h-4" />
+              <span>Call Helpline</span>
+            </a>
+
+            <button
+              type="button"
+              onClick={() => setVoiceModalOpen(true)}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs sm:text-sm font-semibold px-4 py-3 transition-all cursor-pointer"
+            >
+              <span>IVR Simulator</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* ── EMERGENCY & PHC HELPLINES ─────────────────────────────────────── */}
+      {/* Emergency & PHC Helplines */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="rounded-2xl border border-[#DDE8E4] dark:border-[#1A3A3A] bg-white dark:bg-[#0A2020] p-4 space-y-2 shadow-xs">
+        <div className="rounded-2xl border border-[#DDE8E4] dark:border-[#1A3A3A] bg-white dark:bg-[#0A2020] p-4 space-y-1 shadow-xs">
           <div className="flex items-center gap-2 text-rose-600 font-bold text-xs">
             <AlertCircle className="w-4 h-4" />
             <span>{t.ambulance108}</span>
           </div>
           <div className="text-xl font-extrabold text-rose-600">108 / 102</div>
-          <p className="text-[11px] text-[#64748B] dark:text-[#7B9EA8]">{t.panelTrust}</p>
         </div>
 
-        <div className="rounded-2xl border border-[#DDE8E4] dark:border-[#1A3A3A] bg-white dark:bg-[#0A2020] p-4 space-y-2 shadow-xs">
+        <div className="rounded-2xl border border-[#DDE8E4] dark:border-[#1A3A3A] bg-white dark:bg-[#0A2020] p-4 space-y-1 shadow-xs">
           <div className="flex items-center gap-2 text-[#087F6D] dark:text-[#4FD1C5] font-bold text-xs">
             <Building2 className="w-4 h-4" />
             <span>{t.phcHelpline}</span>
           </div>
           <div className="text-xl font-bold text-[#17324D] dark:text-[#E2EEF4]">+91 2356 261234</div>
-          <p className="text-[11px] text-[#64748B] dark:text-[#7B9EA8]">{t.registeredPHC}</p>
         </div>
 
-        <div className="rounded-2xl border border-[#DDE8E4] dark:border-[#1A3A3A] bg-white dark:bg-[#0A2020] p-4 space-y-2 shadow-xs">
+        <div className="rounded-2xl border border-[#DDE8E4] dark:border-[#1A3A3A] bg-white dark:bg-[#0A2020] p-4 space-y-1 shadow-xs">
           <div className="flex items-center gap-2 text-[#087F6D] dark:text-[#4FD1C5] font-bold text-xs">
             <Building2 className="w-4 h-4" />
             <span>{t.womenHelpline104}</span>
           </div>
           <div className="text-xl font-bold text-[#17324D] dark:text-[#E2EEF4]">104</div>
-          <p className="text-[11px] text-[#64748B] dark:text-[#7B9EA8]">National Health Portal</p>
         </div>
       </div>
 
-      {/* ── FAQ ACCORDION ─────────────────────────────────────────────────── */}
+      {/* FAQ Accordion */}
       <div className="rounded-2xl border border-[#DDE8E4] dark:border-[#1A3A3A] bg-white dark:bg-[#0A2020] p-5 sm:p-6 space-y-4 shadow-xs">
         <h3 className="text-base font-bold text-[#17324D] dark:text-[#E2EEF4] border-b border-[#DDE8E4] dark:border-[#1A3A3A] pb-3">
           Frequently Asked Questions (FAQ)
@@ -125,7 +122,7 @@ export const HelpSupportPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setOpenFaq(isOpen ? null : i)}
-                  className="w-full p-4 text-left flex items-center justify-between gap-3 bg-[#F5F9F7]/60 dark:bg-[#0F2929]/50 hover:bg-[#EAF7F2] dark:hover:bg-[#073B3A]/30 transition-colors"
+                  className="w-full p-4 text-left flex items-center justify-between gap-3 bg-[#F5F9F7]/60 dark:bg-[#0F2929]/50 hover:bg-[#EAF7F2] dark:hover:bg-[#073B3A]/30 transition-colors cursor-pointer"
                 >
                   <span className="text-xs sm:text-sm font-bold text-[#17324D] dark:text-[#E2EEF4]">{faq.q}</span>
                   {isOpen ? (
@@ -146,11 +143,7 @@ export const HelpSupportPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Voice Modal */}
-      <VoiceIVRModal
-        isOpen={voiceModalOpen}
-        onClose={() => setVoiceModalOpen(false)}
-      />
+      <VoiceIVRModal isOpen={voiceModalOpen} onClose={() => setVoiceModalOpen(false)} />
     </div>
   );
 };

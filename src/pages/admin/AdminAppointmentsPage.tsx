@@ -94,9 +94,6 @@ export const AdminAppointmentsPage: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           {t.navAppointments} Load & OPD Queue Monitoring
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-          Track in-person hospital visits versus teleconsultation kiosk traffic to assess patient load distribution.
-        </p>
       </div>
 
       {/* Summary KPI cards */}

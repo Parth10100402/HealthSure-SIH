@@ -62,10 +62,6 @@ export const DoctorOverviewPage: React.FC = () => {
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
               {t.welcomeBack} {doctorName}
             </h1>
-
-            <p className="text-xs sm:text-sm text-[#A7D9CE]">
-              {mockDoctorProfile.hospital} • <strong className="text-white">{mockDoctorProfile.speciality} OPD</strong>
-            </p>
           </div>
 
           <div className="flex items-center gap-2">

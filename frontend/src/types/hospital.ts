@@ -19,7 +19,7 @@ export interface HospitalProfile {
 export interface HospitalReferralEntry {
   id: string; // 'HS-REF-7821'
   patientId: string; // 'HS-10248'
-  patientName: string; // 'Ramesh Sharma'
+  patientName: string; // 'Parth Sharma'
   patientAge: number;
   patientGender: 'Male' | 'Female' | 'Other';
   patientVillage: string; // 'Khed'

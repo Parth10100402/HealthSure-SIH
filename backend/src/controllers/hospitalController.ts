@@ -39,7 +39,7 @@ export const getHospitalReferrals = async (_req: Request, res: Response, next: N
       return {
         id: r.id,
         referralId: r.referralId,
-        patientName: pat?.fullName || 'Ramesh Sharma',
+        patientName: pat?.fullName || 'Parth Sharma',
         patientHealthId: pat?.patientId || 'HS-10248',
         referringFacility: fromFac?.name || 'PHC Khed',
         department: r.speciality,

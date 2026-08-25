@@ -51,7 +51,7 @@ class DataStore {
     // 1. Users
     const patientUser: UserEntity = {
       id: 'usr-patient-001',
-      name: 'Ramesh Sharma',
+      name: 'Parth Sharma',
       email: 'priya@example.com',
       phone: '+91 9876543210',
       passwordHash,
@@ -195,7 +195,7 @@ class DataStore {
       id: 'pat-001',
       userId: patientUser.id,
       patientId: 'HS-10248',
-      fullName: 'Ramesh Sharma',
+      fullName: 'Parth Sharma',
       dateOfBirth: '1974-05-12',
       gender: 'Male',
       mobile: '+91 9876543210',

@@ -22,7 +22,7 @@ interface DirectoryPatient {
 const PATIENT_DIRECTORY: DirectoryPatient[] = [
   {
     id: 'HS-10248',
-    name: 'Ramesh Sharma',
+    name: 'Parth Sharma',
     age: 52,
     gender: 'Male',
     village: 'Khed',
@@ -104,7 +104,7 @@ export const HospitalPatientsPage: React.FC = () => {
         <Search className="w-5 h-5 text-[#64748B] absolute left-3.5 top-3" />
         <input
           type="text"
-          placeholder="Search by Patient ID (HS-10248), Name (Ramesh Sharma), or Referral ID (HS-REF-7821)..."
+          placeholder="Search by Patient ID (HS-10248), Name (Parth Sharma), or Referral ID (HS-REF-7821)..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full pl-11 pr-4 py-2.5 text-xs sm:text-sm rounded-2xl border border-[#DDE8E4] dark:border-[#1A3A3A] bg-white dark:bg-[#0A2020] text-[#17324D] dark:text-[#E2EEF4] focus:outline-none focus:ring-2 focus:ring-[#087F6D] shadow-xs"

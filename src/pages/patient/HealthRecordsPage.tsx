@@ -1,3 +1,6 @@
+// HealthSure — Health Records Page
+// frontend/src/pages/patient/HealthRecordsPage.tsx
+
 import React, { useState, useEffect } from 'react';
 import {
   FileText,
@@ -57,9 +60,6 @@ export const HealthRecordsPage: React.FC = () => {
           <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
             {t.recordsPageTitle}
           </h1>
-          <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-            {t.recordsPageDesc}
-          </p>
         </div>
 
         <button
@@ -112,7 +112,7 @@ export const HealthRecordsPage: React.FC = () => {
             key={tab.id}
             type="button"
             onClick={() => setTypeFilter(tab.id as typeof typeFilter)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-colors ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
               typeFilter === tab.id
                 ? 'bg-[#087F6D] text-white shadow-xs'
                 : 'text-[#64748B] dark:text-[#7B9EA8] hover:text-[#17324D]'

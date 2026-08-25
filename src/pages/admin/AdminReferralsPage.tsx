@@ -41,9 +41,6 @@ export const AdminReferralsPage: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           {t.referralPipeline} & Triage Monitoring
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-          Real-time oversight of rural patient transfers from Primary Health Centres to District Hospitals.
-        </p>
       </div>
 
       {/* ── 7-Stage Referral Pipeline Summary Strip ─────────────────────── */}

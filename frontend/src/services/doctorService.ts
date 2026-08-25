@@ -62,7 +62,7 @@ class DoctorService {
         if (json.success && Array.isArray(json.data) && json.data.length > 0) {
           return json.data.map((a: any) => ({
             id: a.appointmentId || a.id,
-            patientName: a.patientName || 'Ramesh Sharma',
+            patientName: a.patientName || 'Parth Sharma',
             patientHealthId: a.patientHealthId || 'HS-10248',
             patientAge: 52,
             patientGender: 'Male' as const,

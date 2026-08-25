@@ -20,9 +20,6 @@ export const AdminSettingsPage: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           {t.navSettings} & Nodal Jurisdiction
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-          Configure administrative jurisdiction, monitoring alert thresholds, and public health officer contacts.
-        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

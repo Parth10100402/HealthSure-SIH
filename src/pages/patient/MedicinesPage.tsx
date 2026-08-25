@@ -28,9 +28,6 @@ export const MedicinesPage: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           {t.medicinesPageTitle}
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-          {t.medicinesPageDesc}
-        </p>
       </div>
 
       {/* Search & Category Filter */}

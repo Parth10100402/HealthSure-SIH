@@ -22,7 +22,7 @@ interface TeleLog {
 const mockTeleLogs: TeleLog[] = [
   {
     id: 'TC-LOG-01',
-    patientId: 'HS-10248 (Ramesh Sharma)',
+    patientId: 'HS-10248 (Parth Sharma)',
     doctorName: 'Dr. Ananya Mehta',
     speciality: 'Cardiology',
     originKiosk: 'PHC Khed Tele-Kiosk',
@@ -95,9 +95,6 @@ export const AdminTeleconsultPage: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           {t.teleconsultVolume} & 2G Adoption Tracking
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-          Evaluate remote consultation volume and the effectiveness of 2G low-bandwidth fallback in rural villages.
-        </p>
       </div>
 
       {/* Stats Cards */}

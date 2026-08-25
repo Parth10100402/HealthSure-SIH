@@ -1,4 +1,4 @@
-// HealthSure — Follow-ups Management Page (Fully Localized)
+// HealthSure — Follow-ups Management Page
 // frontend/src/pages/patient/FollowUpsPage.tsx
 
 import React, { useState, useEffect } from 'react';
@@ -31,9 +31,6 @@ export const FollowUpsPage: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           {t.followupsPageTitle}
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-          {t.followupsPageDesc}
-        </p>
       </div>
 
       {/* Filter Tabs */}
@@ -48,7 +45,7 @@ export const FollowUpsPage: React.FC = () => {
             key={tab.id}
             type="button"
             onClick={() => setStatusFilter(tab.id as typeof statusFilter)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
               statusFilter === tab.id
                 ? 'bg-[#087F6D] text-white shadow-xs'
                 : 'text-[#64748B] dark:text-[#7B9EA8]'

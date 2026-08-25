@@ -40,7 +40,7 @@ export const getDoctorAppointments = async (req: Request, res: Response, next: N
         id: a.id,
         appointmentId: a.appointmentId,
         patientId: a.patientId,
-        patientName: pat?.fullName || 'Ramesh Sharma',
+        patientName: pat?.fullName || 'Parth Sharma',
         patientMobile: pat?.mobile,
         patientHealthId: pat?.patientId || 'HS-10248',
         time: a.startTime,
@@ -73,7 +73,7 @@ export const getDoctorReferrals = async (req: Request, res: Response, next: Next
       return {
         id: r.id,
         referralId: r.referralId,
-        patientName: pat?.fullName || 'Ramesh Sharma',
+        patientName: pat?.fullName || 'Parth Sharma',
         patientHealthId: pat?.patientId || 'HS-10248',
         speciality: r.speciality,
         priority: r.priority.toLowerCase(),
@@ -103,7 +103,7 @@ export const getDoctorFollowUps = async (req: Request, res: Response, next: Next
 
       return {
         id: f.id,
-        patientName: pat?.fullName || 'Ramesh Sharma',
+        patientName: pat?.fullName || 'Parth Sharma',
         patientHealthId: pat?.patientId || 'HS-10248',
         speciality: f.speciality,
         dueDate: f.dueDate,

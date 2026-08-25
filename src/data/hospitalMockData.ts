@@ -28,7 +28,7 @@ export const mockHospitalReferrals: HospitalReferralEntry[] = [
   {
     id: 'HS-REF-7821',
     patientId: 'HS-10248',
-    patientName: 'Ramesh Sharma',
+    patientName: 'Parth Sharma',
     patientAge: 52,
     patientGender: 'Male',
     patientVillage: 'Khed',

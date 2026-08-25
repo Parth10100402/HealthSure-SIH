@@ -95,7 +95,7 @@ export const DoctorFollowUpsPage: React.FC = () => {
             </div>
 
             <div className="pt-2 border-t border-[#DDE8E4]/60 dark:border-[#1A3A3A] flex items-center justify-between">
-              <span className="text-[11px] text-[#64748B]">Ramesh Sharma • HS-10248</span>
+              <span className="text-[11px] text-[#64748B]">Parth Sharma • HS-10248</span>
               <button
                 type="button"
                 onClick={() => alert(`Marked follow-up ${fol.id} as verified and reviewed.`)}

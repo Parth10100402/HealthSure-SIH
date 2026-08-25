@@ -23,7 +23,7 @@ export const mockDoctorAppointments: DoctorAppointmentSummary[] = [
   {
     id: 'APT-DOC-01',
     patientId: 'HS-10248',
-    patientName: 'Ramesh Sharma',
+    patientName: 'Parth Sharma',
     patientAge: 52,
     patientGender: 'Male',
     patientVillage: 'Khed',

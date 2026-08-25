@@ -71,7 +71,7 @@ export interface SystemBottleneck {
 export interface AdminReferralRecord {
   id: string; // e.g. 'HS-REF-7821'
   patientId: string; // 'HS-10248'
-  patientName: string; // 'Ramesh Sharma'
+  patientName: string; // 'Parth Sharma'
   fromFacility: string; // 'PHC Khed'
   toHospital: string; // 'District Hospital Ratnagiri'
   speciality: string; // 'Cardiology'

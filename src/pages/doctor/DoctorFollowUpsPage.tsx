@@ -24,9 +24,6 @@ export const DoctorFollowUpsPage: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           Clinical Follow-Up Tracking
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-          Provider-recorded recovery checkpoints, chronic disease monitoring, and PHC counter-referral reviews.
-        </p>
       </div>
 
       {/* Tabs */}
@@ -95,7 +92,7 @@ export const DoctorFollowUpsPage: React.FC = () => {
             </div>
 
             <div className="pt-2 border-t border-[#DDE8E4]/60 dark:border-[#1A3A3A] flex items-center justify-between">
-              <span className="text-[11px] text-[#64748B]">Ramesh Sharma • HS-10248</span>
+              <span className="text-[11px] text-[#64748B]">Parth Sharma • HS-10248</span>
               <button
                 type="button"
                 onClick={() => alert(`Marked follow-up ${fol.id} as verified and reviewed.`)}

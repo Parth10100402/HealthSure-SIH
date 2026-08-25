@@ -28,9 +28,6 @@ export const HospitalCapacityPage: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           Hospital Operations & Bed Capacity
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-          Real-time bed occupancy, specialist OPD slots, and emergency triage load for District Hospital Ratnagiri.
-        </p>
       </div>
 
       {/* Capacity Overview Cards */}

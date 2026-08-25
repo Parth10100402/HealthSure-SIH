@@ -218,7 +218,7 @@ export const TeleconsultRoomMock: React.FC<{
 
               {/* Patient Name Badge Overlay */}
               <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-black/60 text-[10px] text-white backdrop-blur-xs flex items-center gap-1">
-                <span>Ramesh Sharma</span>
+                <span>Parth Sharma</span>
                 {!isMicOn && <MicOff className="w-3 h-3 text-rose-400" />}
               </div>
             </div>

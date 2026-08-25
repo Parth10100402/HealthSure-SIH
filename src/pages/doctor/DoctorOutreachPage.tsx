@@ -27,9 +27,6 @@ export const DoctorOutreachPage: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           My Specialist Outreach Schedule
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8]">
-          Scheduled clinical visits to rural Primary Health Centres (PHCs) so local villagers don't need to travel 50km.
-        </p>
       </div>
 
       {/* Explainer Banner */}
@@ -89,7 +86,7 @@ export const DoctorOutreachPage: React.FC = () => {
               <span className="text-[11px] text-[#64748B]">Mobile Medical Unit Transport Arranged</span>
               <button
                 type="button"
-                onClick={() => alert(`Opening booked patient roster for ${camp.outreachLocation} (${camp.date}). Includes Ramesh Sharma and 7 other registered villagers.`)}
+                onClick={() => alert(`Opening booked patient roster for ${camp.outreachLocation} (${camp.date}). Includes Parth Sharma and 7 other registered villagers.`)}
                 className="py-1.5 px-3.5 rounded-xl bg-[#087F6D] hover:bg-[#073B3A] text-white text-xs font-bold shadow-xs transition-colors"
               >
                 View Patient Roster

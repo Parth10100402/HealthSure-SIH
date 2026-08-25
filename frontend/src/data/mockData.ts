@@ -1652,7 +1652,7 @@ export const MOCK_REPORTS: MedicalReport[] = [
     id: 'rep-demo-diabetes',
     title: 'HbA1c & Fasting Blood Sugar',
     date: '30 Jul 2026',
-    patientName: 'Ramesh Sharma',
+    patientName: 'Parth Sharma',
     patientId: 'mem-4',
     category: 'Endocrinology',
     department: 'Endocrinology',

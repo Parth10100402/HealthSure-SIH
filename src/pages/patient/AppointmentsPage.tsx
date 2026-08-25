@@ -1,4 +1,4 @@
-// HealthSure — Appointments Management Page (Fully Localized)
+// HealthSure — Appointments Management Page
 // frontend/src/pages/patient/AppointmentsPage.tsx
 
 import React, { useState, useEffect } from 'react';
@@ -46,15 +46,12 @@ export const AppointmentsPage: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
-      {/* Page Header */}
+      {/* Page Header (No subline description) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#DDE8E4] dark:border-[#1A3A3A] pb-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
             {t.appointmentsPageTitle}
           </h1>
-          <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-            {t.appointmentsPageDesc}
-          </p>
         </div>
 
         <button
@@ -74,7 +71,7 @@ export const AppointmentsPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setActiveTab('upcoming')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
               activeTab === 'upcoming'
                 ? 'bg-[#087F6D] text-white shadow-xs'
                 : 'text-[#64748B] dark:text-[#7B9EA8] hover:text-[#17324D]'
@@ -85,7 +82,7 @@ export const AppointmentsPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setActiveTab('past')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
               activeTab === 'past'
                 ? 'bg-[#087F6D] text-white shadow-xs'
                 : 'text-[#64748B] dark:text-[#7B9EA8] hover:text-[#17324D]'
@@ -96,7 +93,7 @@ export const AppointmentsPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setActiveTab('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
               activeTab === 'all'
                 ? 'bg-[#087F6D] text-white shadow-xs'
                 : 'text-[#64748B] dark:text-[#7B9EA8] hover:text-[#17324D]'

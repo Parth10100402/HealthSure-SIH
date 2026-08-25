@@ -17,7 +17,6 @@ import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from '../../lib/i18n/useTranslation';
 import { LanguageSelector } from '../auth/LanguageSelector';
 import { ThemeToggle } from '../auth/ThemeToggle';
-import { NotificationPanel } from './NotificationPanel';
 import { mockPatientProfile } from '../../data/patientMockData';
 import { HEALTHSURE_IVR_NUMBER } from '../../config/constants';
 
@@ -104,9 +103,6 @@ export const PatientHeader: React.FC<PatientHeaderProps> = ({
             <PhoneCall className="w-3.5 h-3.5" />
             <span>{HEALTHSURE_IVR_NUMBER}</span>
           </button>
-
-          {/* Notifications */}
-          <NotificationPanel />
 
           {/* Language selector */}
           <div className="hidden sm:block">

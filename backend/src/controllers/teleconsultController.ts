@@ -6,7 +6,19 @@ import { dataStore } from '../db/store.js';
 
 export const getTeleconsultations = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const list = dataStore.teleconsultations.map((t) => {
+    let list = [...dataStore.teleconsultations];
+
+    if (req.user?.role === 'PATIENT') {
+      const pat = dataStore.patients.find((p) => p.userId === req.user?.userId || p.id === req.user?.patientId);
+      const pid = pat?.id || req.user.patientId;
+      if (pid) list = list.filter((t) => t.patientId === pid);
+    } else if (req.user?.role === 'DOCTOR') {
+      const doc = dataStore.doctors.find((d) => d.userId === req.user?.userId || d.id === req.user?.doctorId);
+      const did = doc?.id || req.user.doctorId;
+      if (did) list = list.filter((t) => t.doctorId === did);
+    }
+
+    const enriched = list.map((t) => {
       const apt = dataStore.appointments.find((a) => a.id === t.appointmentId);
       const pat = dataStore.patients.find((p) => p.id === t.patientId);
       const doc = dataStore.doctors.find((d) => d.id === t.doctorId);
@@ -18,7 +30,7 @@ export const getTeleconsultations = async (req: Request, res: Response, next: Ne
         time: apt?.startTime || '10:30 AM',
         doctorName: doc?.name || 'Dr. Ananya Mehta',
         speciality: doc?.speciality || 'Cardiology',
-        patientName: pat?.fullName || 'Ramesh Sharma',
+        patientName: pat?.fullName || 'Parth Sharma',
         patientHealthId: pat?.patientId || 'HS-10248',
         hospital: fac?.name || 'District Hospital Ratnagiri',
         instructions: 'Please join 5 minutes prior to slot from your local PHC tele-kiosk or HealthSure mobile portal.',
@@ -27,7 +39,7 @@ export const getTeleconsultations = async (req: Request, res: Response, next: Ne
 
     res.json({
       success: true,
-      data: list,
+      data: enriched,
     });
   } catch (error) {
     next(error);

@@ -16,12 +16,12 @@ import type {
 
 export const mockPatientProfile: PatientProfile = {
   id: 'HS-10248',
-  fullName: 'Ramesh Sharma',
+  fullName: 'Parth Sharma',
   age: 52,
   dateOfBirth: '1974-06-12',
   gender: 'Male',
   phone: '+91 98223 45678',
-  email: 'ramesh.sharma@example.com',
+  email: 'parth.sharma@example.com',
   village: 'Khed',
   taluka: 'Khed',
   district: 'Ratnagiri',

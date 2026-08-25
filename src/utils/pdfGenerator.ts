@@ -66,7 +66,7 @@ export function downloadHealthRecordPDF(
   patient?: Partial<PatientProfile> | AuthUser | null
 ) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const patientName = patient?.fullName || 'Ramesh Sharma';
+  const patientName = patient?.fullName || 'Parth Sharma';
   const patientId = (patient as any)?.patientId || patient?.id || 'HS-10248';
   const facility = record.facility || (patient as any)?.village || 'PHC Khed';
 
@@ -217,7 +217,7 @@ export function downloadAppointmentSlipPDF(
   patient?: Partial<PatientProfile> | AuthUser | null
 ) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const patientName = patient?.fullName || 'Ramesh Sharma';
+  const patientName = patient?.fullName || 'Parth Sharma';
   const patientId = (patient as any)?.patientId || patient?.id || 'HS-10248';
 
   addHeader(
@@ -297,7 +297,7 @@ export function downloadReferralPassPDF(
   patient?: Partial<PatientProfile> | AuthUser | null
 ) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const patientName = patient?.fullName || 'Ramesh Sharma';
+  const patientName = patient?.fullName || 'Parth Sharma';
   const patientId = (patient as any)?.patientId || patient?.id || 'HS-10248';
 
   addHeader(

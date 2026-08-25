@@ -44,10 +44,6 @@ export const HospitalOverviewPage: React.FC = () => {
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
               {mockHospitalProfile.name}
             </h1>
-
-            <p className="text-xs sm:text-sm text-[#A7D9CE]">
-              {t.hospitalPortalTitle} • <strong>{mockHospitalProfile.assignedPHCs.length} {t.registeredPHC}</strong>
-            </p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -130,9 +126,6 @@ export const HospitalOverviewPage: React.FC = () => {
             <h2 className="text-base font-bold text-[#17324D] dark:text-[#E2EEF4]">
               {t.intakeDesk}
             </h2>
-            <p className="text-xs text-[#64748B] dark:text-[#7B9EA8]">
-              {t.referralsPageDesc}
-            </p>
           </div>
 
           <Link

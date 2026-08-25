@@ -16,9 +16,6 @@ export const DoctorProfilePage: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           Doctor Clinical Profile
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-          Government medical registration, specialist credentials, and rural outreach assignments.
-        </p>
       </div>
 
       {/* Main Profile Card */}

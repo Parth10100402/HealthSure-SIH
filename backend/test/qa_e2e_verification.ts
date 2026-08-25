@@ -55,7 +55,7 @@ async function runQA() {
     patientToken = json.token;
   });
 
-  await qaStep('PATIENT', 'Fetch Patient Profile (HS-10248 Ramesh Sharma)', async () => {
+  await qaStep('PATIENT', 'Fetch Patient Profile (HS-10248 Parth Sharma)', async () => {
     const res = await fetch(`${baseUrl}/patients/me`, {
       headers: { Authorization: `Bearer ${patientToken}` },
     });

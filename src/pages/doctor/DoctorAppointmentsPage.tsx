@@ -54,9 +54,6 @@ export const DoctorAppointmentsPage: React.FC = () => {
           <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
             {t.navTodayPatients}
           </h1>
-          <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-            Cardiology OPD Room 104 • District Hospital Ratnagiri
-          </p>
         </div>
       </div>
 

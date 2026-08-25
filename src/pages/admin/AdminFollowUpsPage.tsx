@@ -35,9 +35,6 @@ export const AdminFollowUpsPage: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           {t.navFollowups} & Treatment Adherence Monitoring
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-          Privacy-preserving monitoring of patient follow-ups and secondary review attendance across rural primary health centres.
-        </p>
       </div>
 
       {/* Summary KPI Cards */}

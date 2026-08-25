@@ -69,7 +69,7 @@ class HospitalService {
           return json.data.map((r: any) => ({
             id: r.referralId || r.id,
             referralId: r.referralId,
-            patientName: r.patientName || 'Ramesh Sharma',
+            patientName: r.patientName || 'Parth Sharma',
             patientAge: 52,
             patientGender: 'Male' as const,
             patientHealthId: r.patientHealthId || 'HS-10248',

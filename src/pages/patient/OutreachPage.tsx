@@ -1,15 +1,12 @@
-// HealthSure — Specialist Outreach Weekly Schedule Page (Fully Localized)
+// HealthSure — Specialist Outreach Weekly Schedule Page
 // frontend/src/pages/patient/OutreachPage.tsx
 
 import React, { useState, useEffect } from 'react';
-import {
-  Activity,
-  Filter,
-} from 'lucide-react';
+import { Filter } from 'lucide-react';
 import type { SpecialistOutreach } from '../../types/patient';
 import { patientService } from '../../services/patientService';
 import { useTranslation } from '../../lib/i18n/useTranslation';
-import { OutreachCard, OutreachBookingModal } from '../../components/patient/OutreachCard';
+import { OutreachCard } from '../../components/patient/OutreachCard';
 
 interface DayScheduleTab {
   dayName: 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';
@@ -32,7 +29,6 @@ export const OutreachPage: React.FC = () => {
   const [outreachEvents, setOutreachEvents] = useState<SpecialistOutreach[]>([]);
   const [selectedDay, setSelectedDay] = useState<DayScheduleTab>(WEEK_DAYS[0]);
   const [specialityFilter, setSpecialityFilter] = useState('all');
-  const [selectedForBooking, setSelectedForBooking] = useState<SpecialistOutreach | null>(null);
 
   const loadData = async () => {
     const data = await patientService.getOutreachEvents();
@@ -43,7 +39,6 @@ export const OutreachPage: React.FC = () => {
     loadData();
   }, []);
 
-  // Filter events for the currently selected day
   const dayEvents = outreachEvents.filter((ev) => {
     const matchesDay = ev.dayOfWeek === selectedDay.dayName || ev.date === selectedDay.dateStr;
     const matchesSpec =
@@ -53,28 +48,20 @@ export const OutreachPage: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto animate-in fade-in duration-200">
-      {/* ── HEADER ───────────────────────────────────────────────────────── */}
-      <div className="space-y-1 border-b border-[#DDE8E4] dark:border-[#1A3A3A] pb-4">
-        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#EAF7F2] dark:bg-[#073B3A] text-[#087F6D] dark:text-[#4FD1C5] text-xs font-bold mb-1">
-          <Activity className="w-3.5 h-3.5" />
-          <span>{t.phcKhedVenue}</span>
-        </div>
+      {/* Header */}
+      <div className="border-b border-[#DDE8E4] dark:border-[#1A3A3A] pb-4">
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           {t.outreachPageTitle}
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8]">
-          {t.outreachPageDesc}
-        </p>
       </div>
 
-      {/* ── WEEKDAY SELECTOR TABS ─────────────────────────────────────────── */}
+      {/* Weekday Selector */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-[#17324D] dark:text-[#E2EEF4] uppercase tracking-wider">
             {t.outreachNotice}
           </span>
           
-          {/* Compact Speciality Filter */}
           <div className="flex items-center gap-1.5 text-xs text-[#64748B]">
             <Filter className="w-3.5 h-3.5 text-[#087F6D]" />
             <select
@@ -120,15 +107,12 @@ export const OutreachPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── EVENTS LIST FOR SELECTED DAY ──────────────────────────────────── */}
+      {/* Events Grid */}
       <div className="space-y-4">
         {dayEvents.length === 0 ? (
-          <div className="rounded-2xl border border-[#DDE8E4] dark:border-[#1A3A3A] bg-white dark:bg-[#0A2020] p-8 text-center space-y-2">
+          <div className="rounded-2xl border border-dashed border-[#DDE8E4] dark:border-[#1A3A3A] bg-white dark:bg-[#0A2020] p-8 text-center space-y-2">
             <p className="text-sm font-bold text-[#17324D] dark:text-[#E2EEF4]">
               {t.noData}
-            </p>
-            <p className="text-xs text-[#64748B] dark:text-[#7B9EA8]">
-              {t.emptyDesc}
             </p>
           </div>
         ) : (
@@ -145,19 +129,6 @@ export const OutreachPage: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* Booking Modal */}
-      {selectedForBooking && (
-        <OutreachBookingModal
-          outreach={selectedForBooking}
-          isOpen={!!selectedForBooking}
-          onClose={() => setSelectedForBooking(null)}
-          onSuccess={() => {
-            setSelectedForBooking(null);
-            loadData();
-          }}
-        />
-      )}
     </div>
   );
 };

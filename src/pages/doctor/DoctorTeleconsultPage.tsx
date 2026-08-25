@@ -77,9 +77,6 @@ export const DoctorTeleconsultPage: React.FC = () => {
             <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
               Remote Rural Tele-Clinic
             </h1>
-            <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8]">
-              Connected with: <strong>Ramesh Sharma (HS-10248)</strong> at <strong>PHC Khed Tele-Kiosk</strong>
-            </p>
           </div>
         </div>
 
@@ -131,7 +128,7 @@ export const DoctorTeleconsultPage: React.FC = () => {
                   <div className="w-24 h-24 rounded-full bg-[#087F6D]/40 border-2 border-[#4FD1C5] mx-auto flex items-center justify-center text-white text-3xl font-bold">
                     RS
                   </div>
-                  <div className="text-white font-bold text-sm">Ramesh Sharma (Patient)</div>
+                  <div className="text-white font-bold text-sm">Parth Sharma (Patient)</div>
                   <div className="text-slate-400 text-xs">
                     {isLowBandwidthMode ? '🎙️ Audio Priority Mode Active (2G)' : 'Facilitated by Sister Anjali (ANM, PHC Khed)'}
                   </div>

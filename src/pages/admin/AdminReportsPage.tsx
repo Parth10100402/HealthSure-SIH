@@ -52,9 +52,6 @@ export const AdminReportsPage: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           {t.operationalReports} & Data Exports
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-          Generate structured public health reports across referral completion, specialist outreach, and rural tele-health coverage.
-        </p>
       </div>
 
       {/* Reports Grid */}

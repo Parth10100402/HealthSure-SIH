@@ -18,9 +18,6 @@ export const HospitalReportsPage: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#17324D] dark:text-[#E2EEF4]">
           Hospital Operational & Continuity Reports
         </h1>
-        <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#7B9EA8] mt-0.5">
-          Public healthcare service delivery, referral completion rates, and specialist outreach efficiency.
-        </p>
       </div>
 
       {/* 4 Core Operational KPI Cards */}

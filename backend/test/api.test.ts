@@ -46,7 +46,7 @@ async function runTests() {
 
   // 2. Auth: Patient Login
   let patientToken = '';
-  await test('POST /api/auth/login logs in Patient (Ramesh Sharma)', async () => {
+  await test('POST /api/auth/login logs in Patient (Parth Sharma)', async () => {
     const res = await fetch(`${baseUrl}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -180,7 +180,7 @@ export const mockAdminReferrals: AdminReferralRecord[] = [
   {
     id: 'HS-REF-7821',
     patientId: 'HS-10248',
-    patientName: 'Ramesh Sharma',
+    patientName: 'Parth Sharma',
     fromFacility: 'PHC Khed',
     toHospital: 'District Hospital Ratnagiri',
     speciality: 'Cardiology',

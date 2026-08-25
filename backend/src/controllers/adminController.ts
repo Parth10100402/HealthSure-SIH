@@ -6,27 +6,42 @@ import { dataStore } from '../db/store.js';
 
 export const getAdminOverview = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const totalReferrals = dataStore.referrals.length + 437;
+    const baseAppointments = 1280;
+    const initialAptCount = 2; // initial seeded appointments
+    const totalAppointments = baseAppointments + (dataStore.appointments.length - initialAptCount);
+
+    const basePatients = 12840;
+    const initialPatCount = 1;
+    const patientsServed = basePatients + (dataStore.patients.length - initialPatCount);
+
+    const totalReferrals = dataStore.referrals.length + 436;
     const completedReferrals = 381;
-    const activeReferrals = totalReferrals - completedReferrals;
-    const completionRate = Math.round((completedReferrals / totalReferrals) * 100);
+    const activeReferrals = dataStore.referrals.filter((r) => r.status !== 'COMPLETED').length + 55;
+    const completionRate = totalReferrals > 0 ? Math.round((completedReferrals / totalReferrals) * 100) : 87;
 
     const totalOutreachSlots = dataStore.outreachSchedules.reduce((a, b) => a + b.totalSlots, 0);
     const bookedOutreachSlots = dataStore.outreachSchedules.reduce((a, b) => a + (b.totalSlots - b.availableSlots), 0);
+
+    const baseTeleconsults = 1284;
+    const initialTeleCount = 2;
+    const teleconsultations = baseTeleconsults + (dataStore.teleconsultations.length - initialTeleCount);
+
+    const followUpsDue = dataStore.followUps.filter((f) => f.status === 'DUE').length + 310;
 
     res.json({
       success: true,
       data: {
         indicators: {
-          patientsServed: 12840,
+          patientsServed,
+          totalAppointments,
           activeReferrals,
           referralCompletionRate: completionRate,
           specialistOutreachVisits: 126,
-          teleconsultations: 1284,
-          followUpsDue: dataStore.followUps.length + 311,
+          teleconsultations,
+          followUpsDue,
         },
         pipeline: [
-          { stage: 1, key: 'created', title: '1. PHC Created', count: 438, description: 'Referrals initiated by rural medical officers' },
+          { stage: 1, key: 'created', title: '1. PHC Created', count: 438 + (dataStore.referrals.length - 2), description: 'Referrals initiated by rural medical officers' },
           { stage: 2, key: 'accepted', title: '2. Hospital Accepted', count: 426, description: 'Validated & triaged by district specialists' },
           { stage: 3, key: 'scheduled', title: '3. Slot Reserved', count: 410, description: 'Appointments and OPD tokens assigned' },
           { stage: 4, key: 'patient_visit', title: '4. Arrival Confirmed', count: 395, description: 'Patients registered at hospital desk' },
@@ -108,7 +123,7 @@ export const getAdminReferrals = async (_req: Request, res: Response, next: Next
       return {
         id: r.referralId,
         patientId: pat?.patientId || 'HS-10248',
-        patientName: pat?.fullName || 'Ramesh Sharma',
+        patientName: pat?.fullName || 'Parth Sharma',
         fromFacility: fromFac?.name || 'PHC Khed',
         toHospital: toFac?.name || 'District Hospital Ratnagiri',
         speciality: r.speciality,

@@ -67,10 +67,6 @@ export const AdminOverviewPage: React.FC = () => {
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
               State Healthcare Access & Care Continuity Dashboard
             </h1>
-
-            <p className="text-xs sm:text-sm text-[#A7D9CE]">
-              Monitoring <strong>Maharashtra</strong> • {selectedDistrict === 'all' ? t.allDistricts : `${selectedDistrict} District`} • {selectedFacility === 'all' ? t.allFacilities : selectedFacility}
-            </p>
           </div>
 
           <div className="flex items-center gap-2">
