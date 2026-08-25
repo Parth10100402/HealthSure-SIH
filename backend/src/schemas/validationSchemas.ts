@@ -44,11 +44,13 @@ export const createAppointmentSchema = z.object({
   facilityId: z.string(),
   outreachId: z.string().optional(),
   referralId: z.string().optional(),
-  date: z.string(),
-  startTime: z.string(),
+  scheduledAt: z.string().optional(),
+  date: z.string().optional(),
+  startTime: z.string().optional(),
   endTime: z.string().optional(),
   mode: z.enum(['IN_PERSON', 'OUTREACH', 'TELECONSULTATION']).default('IN_PERSON'),
   reasonForVisit: z.string().optional(),
+  idempotencyKey: z.string().optional(),
 });
 
 export const bookOutreachSlotSchema = z.object({

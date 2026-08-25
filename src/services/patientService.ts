@@ -1,6 +1,4 @@
-// HealthSure — Patient Service Layer connected to Backend REST API
-// frontend/src/services/patientService.ts
-
+import { createUtcInstantFromIst, formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime';
 import type {
   PatientProfile,
   Appointment,
@@ -92,24 +90,28 @@ export const patientService = {
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
-          return json.data.map((a: any) => ({
-            id: a.appointmentId || a.id,
-            doctorName: a.doctorName || 'Dr. Specialist',
-            doctorQualification: 'MD, Specialist Lead',
-            speciality: a.speciality || 'Cardiology',
-            facility: a.facilityName || 'District Hospital Ratnagiri',
-            facilityType: a.facilityName?.includes('PHC') ? 'PHC' : 'District Hospital',
-            date: a.date,
-            time: a.startTime,
-            status: a.status.toLowerCase(),
-            type: a.mode === 'OUTREACH' ? 'outreach' : a.mode === 'TELECONSULTATION' ? 'teleconsultation' : 'in-person',
-            tokenNumber: a.token || 'TKN-01',
-            roomNumber: 'OPD-102',
-            reasonForVisit: a.reasonForVisit || 'Specialist Consultation',
-            instructions: 'Please bring prior clinical records and photo ID.',
-            isOutreachVisit: a.mode === 'OUTREACH',
-            outreachLocation: a.mode === 'OUTREACH' ? a.facilityName : undefined,
-          }));
+          return json.data.map((a: any) => {
+            const scheduledAt = a.scheduledAt || createUtcInstantFromIst(a.date, a.startTime);
+            return {
+              id: a.appointmentId || a.id,
+              scheduledAt,
+              doctorName: a.doctorName || 'Dr. Specialist',
+              doctorQualification: 'MD, Specialist Lead',
+              speciality: a.speciality || 'Cardiology',
+              facility: a.facilityName || 'District Hospital Ratnagiri',
+              facilityType: a.facilityName?.includes('PHC') ? 'PHC' : 'District Hospital',
+              date: formatAppointmentDate(scheduledAt),
+              time: formatAppointmentTime(scheduledAt),
+              status: a.status.toLowerCase(),
+              type: a.mode === 'OUTREACH' ? 'outreach' : a.mode === 'TELECONSULTATION' ? 'teleconsultation' : 'in-person',
+              tokenNumber: a.token || 'TKN-01',
+              roomNumber: 'OPD-102',
+              reasonForVisit: a.reasonForVisit || 'Specialist Consultation',
+              instructions: 'Please bring prior clinical records and photo ID.',
+              isOutreachVisit: a.mode === 'OUTREACH',
+              outreachLocation: a.mode === 'OUTREACH' ? a.facilityName : undefined,
+            };
+          });
         }
       }
     } catch {
@@ -125,25 +127,32 @@ export const patientService = {
 
   async bookAppointment(newApt: Omit<Appointment, 'id' | 'tokenNumber' | 'status'>): Promise<Appointment> {
     try {
+      const scheduledAt = createUtcInstantFromIst(newApt.date, newApt.time);
       const res = await fetch(`${API_BASE_URL}/appointments`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
           doctorId: 'doc-001',
           facilityId: 'fac-phc-01',
+          scheduledAt,
           date: newApt.date,
           startTime: newApt.time,
           mode: newApt.type === 'outreach' ? 'OUTREACH' : newApt.type === 'teleconsultation' ? 'TELECONSULTATION' : 'IN_PERSON',
           reasonForVisit: newApt.reasonForVisit,
+          idempotencyKey: 'idem-' + Date.now(),
         }),
       });
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) {
+          const persistedScheduledAt = json.data.scheduledAt || scheduledAt;
           const created: Appointment = {
             ...newApt,
-            id: json.data.appointmentId,
+            scheduledAt: persistedScheduledAt,
+            id: json.data.appointmentId || json.data.id,
             tokenNumber: json.data.token,
+            date: formatAppointmentDate(persistedScheduledAt),
+            time: formatAppointmentTime(persistedScheduledAt),
             status: 'confirmed',
           };
           mockAppointments.unshift(created);

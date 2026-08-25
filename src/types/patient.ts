@@ -30,6 +30,7 @@ export interface PatientProfile {
 }
 
 export interface Appointment {
+  scheduledAt?: string;
   id: string; // e.g., 'HS-APT-3012'
   doctorName: string;
   doctorQualification: string;

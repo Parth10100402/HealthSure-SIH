@@ -163,6 +163,7 @@ export interface AppointmentEntity {
   facilityId: string;
   outreachId?: string;
   referralId?: string;
+  scheduledAt: string; // ISO-8601 UTC Instant (e.g. 2026-08-28T06:00:00.000Z)
   date: string;
   startTime: string;
   endTime?: string;
@@ -170,6 +171,7 @@ export interface AppointmentEntity {
   status: AppointmentStatus;
   token?: string;
   reasonForVisit?: string;
+  idempotencyKey?: string;
   createdAt: Date;
   updatedAt: Date;
 }

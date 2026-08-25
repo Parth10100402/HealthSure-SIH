@@ -50,6 +50,7 @@ export interface DoctorConsultationForm {
 }
 
 export interface DoctorAppointmentSummary {
+  scheduledAt?: string;
   id: string;
   patientId: string;
   patientName: string;

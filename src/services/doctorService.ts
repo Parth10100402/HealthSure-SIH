@@ -1,6 +1,4 @@
-// HealthSure — Doctor Portal Service Layer connected to Backend REST API
-// frontend/src/services/doctorService.ts
-
+import { formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime';
 import {
   mockDoctorProfile,
   mockDoctorAppointments,
@@ -62,17 +60,25 @@ class DoctorService {
         if (json.success && Array.isArray(json.data) && json.data.length > 0) {
           return json.data.map((a: any) => ({
             id: a.appointmentId || a.id,
+            scheduledAt: a.scheduledAt,
             patientName: a.patientName || 'Parth Sharma',
             patientHealthId: a.patientHealthId || 'HS-10248',
             patientAge: 52,
             patientGender: 'Male' as const,
-            time: a.time,
+            patientVillage: 'Khed',
+            referringPHC: a.facility || 'PHC Khed',
+            date: formatAppointmentDate(a.scheduledAt || a.date),
+            time: formatAppointmentTime(a.scheduledAt || a.time || a.startTime),
+            speciality: 'Cardiology',
+            mode: 'teleconsultation' as const,
             type: a.type.toLowerCase().includes('tele') ? ('teleconsult' as const) : ('in_person' as const),
             status: a.status.toLowerCase() as any,
-            tokenNumber: a.tokenNumber || 'OPD-01',
+            tokenNumber: a.tokenNumber || a.token || 'OPD-01',
             chiefComplaint: a.reasonForVisit || 'Specialist Evaluation',
+            reasonForVisit: a.reasonForVisit || 'Specialist Evaluation',
             phcName: a.facility || 'PHC Khed',
             isOutreachSlot: false,
+            priority: 'Normal' as const,
           }));
         }
       }

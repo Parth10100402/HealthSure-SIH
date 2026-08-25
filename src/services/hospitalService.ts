@@ -1,6 +1,4 @@
-// HealthSure — Hospital Staff Portal Service Layer connected to Backend REST API
-// frontend/src/services/hospitalService.ts
-
+import { formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime';
 import {
   mockHospitalProfile,
   mockHospitalReferrals,
@@ -145,6 +143,38 @@ class HospitalService {
   }
 
   async getAppointments(): Promise<DoctorAppointmentSummary[]> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/appointments`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data)) {
+          return json.data.map((a: any) => ({
+            id: a.appointmentId || a.id,
+            scheduledAt: a.scheduledAt,
+            patientName: a.patientName || 'Parth Sharma',
+            patientHealthId: a.patientHealthId || 'HS-10248',
+            patientAge: 52,
+            patientGender: 'Male' as const,
+            patientVillage: 'Khed',
+            referringPHC: a.facilityName || 'PHC Khed',
+            date: formatAppointmentDate(a.scheduledAt || a.date),
+            time: formatAppointmentTime(a.scheduledAt || a.startTime || a.time),
+            speciality: a.speciality || 'Cardiology',
+            mode: a.mode === 'TELECONSULTATION' ? ('teleconsultation' as const) : ('in-person' as const),
+            type: a.mode === 'TELECONSULTATION' ? ('teleconsult' as const) : ('in_person' as const),
+            status: (a.status || 'confirmed').toLowerCase() as any,
+            tokenNumber: a.token || 'OPD-01',
+            chiefComplaint: a.reasonForVisit || 'Referred Specialist OPD',
+            reasonForVisit: a.reasonForVisit || 'Referred Specialist OPD',
+            phcName: a.facilityName || 'PHC Khed',
+            isOutreachSlot: a.mode === 'OUTREACH',
+            priority: 'Normal' as const,
+          }));
+        }
+      }
+    } catch {
+      // Fallback
+    }
     return [...this.appointments];
   }
 

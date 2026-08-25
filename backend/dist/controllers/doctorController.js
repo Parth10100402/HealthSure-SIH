@@ -1,6 +1,7 @@
-// HealthSure — Doctor Controller
+// HealthSure — Doctor Controller with Canonical DateTime Formatting
 // backend/src/controllers/doctorController.ts
 import { dataStore } from '../db/store.js';
+import { createUtcInstantFromIst, formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime.js';
 export const getMyDoctorProfile = async (req, res, next) => {
     try {
         const userId = req.user?.userId;
@@ -23,11 +24,14 @@ export const getMyDoctorProfile = async (req, res, next) => {
 };
 export const getDoctorAppointments = async (req, res, next) => {
     try {
-        const doctor = dataStore.doctors[0];
+        const doctor = dataStore.doctors.find((d) => d.userId === req.user?.userId || d.id === req.user?.doctorId) || dataStore.doctors[0];
         const appointments = dataStore.appointments.filter((a) => a.doctorId === doctor.id);
         const enriched = appointments.map((a) => {
             const pat = dataStore.patients.find((p) => p.id === a.patientId);
             const fac = dataStore.facilities.find((f) => f.id === a.facilityId);
+            const scheduledAt = a.scheduledAt || createUtcInstantFromIst(a.date, a.startTime);
+            const displayTime = formatAppointmentTime(scheduledAt);
+            const displayDate = formatAppointmentDate(scheduledAt);
             return {
                 id: a.id,
                 appointmentId: a.appointmentId,
@@ -35,8 +39,10 @@ export const getDoctorAppointments = async (req, res, next) => {
                 patientName: pat?.fullName || 'Parth Sharma',
                 patientMobile: pat?.mobile,
                 patientHealthId: pat?.patientId || 'HS-10248',
-                time: a.startTime,
-                date: a.date,
+                scheduledAt,
+                time: displayTime,
+                startTime: displayTime,
+                date: displayDate,
                 type: a.mode === 'TELECONSULTATION' ? 'Teleconsult' : 'In-Person OPD',
                 status: a.status.toLowerCase(),
                 tokenNumber: a.token || 'OPD-01',
@@ -86,7 +92,7 @@ export const getDoctorFollowUps = async (req, res, next) => {
         const followUps = dataStore.followUps;
         const enriched = followUps.map((f) => {
             const pat = dataStore.patients.find((p) => p.id === f.patientId);
-            const fac = dataStore.facilities.find((fac) => fac.id === f.facilityId);
+            const fac = dataStore.facilities.find((f) => f.id === f.facilityId);
             return {
                 id: f.id,
                 patientName: pat?.fullName || 'Parth Sharma',
@@ -96,7 +102,7 @@ export const getDoctorFollowUps = async (req, res, next) => {
                 mode: f.mode.toLowerCase(),
                 status: f.status.toLowerCase(),
                 instructions: f.instructions,
-                facility: fac?.name || 'PHC Khed',
+                facilityName: fac?.name || 'PHC Khed',
             };
         });
         res.json({
@@ -110,59 +116,59 @@ export const getDoctorFollowUps = async (req, res, next) => {
 };
 export const completeConsultation = async (req, res, next) => {
     try {
-        const { appointmentId, clinicalNotes, diagnosis, vitals, prescriptions, createFollowUpDays, followUpInstructions } = req.body;
+        const { appointmentId, patientId, clinicalNotes, diagnosis, vitals, prescription, createFollowUpDays, followUpInstructions } = req.body;
+        const doc = dataStore.doctors.find((d) => d.userId === req.user?.userId || d.id === req.user?.doctorId) || dataStore.doctors[0];
+        const pat = dataStore.patients.find((p) => p.id === patientId) || dataStore.patients[0];
         const apt = dataStore.appointments.find((a) => a.id === appointmentId || a.appointmentId === appointmentId);
-        if (!apt) {
-            res.status(404).json({ success: false, message: 'Appointment not found.' });
-            return;
+        if (apt) {
+            apt.status = 'COMPLETED';
+            apt.updatedAt = new Date();
         }
-        apt.status = 'COMPLETED';
-        apt.updatedAt = new Date();
-        // 1. Create Health Record
-        const record = {
-            id: 'hr-' + Date.now(),
-            patientId: apt.patientId,
-            doctorId: apt.doctorId,
-            facilityId: apt.facilityId,
-            appointmentId: apt.id,
+        const hrId = 'hr-' + Date.now();
+        const newRecord = {
+            id: hrId,
+            patientId: pat.id,
+            doctorId: doc.id,
+            facilityId: doc.hospitalId,
+            appointmentId: apt?.id,
             recordType: 'CONSULTATION',
-            title: `${diagnosis || 'Clinical'} Consultation Record`,
+            title: `Clinical Consultation - ${doc.speciality}`,
             date: new Date().toISOString().split('T')[0],
-            clinicalNotes: clinicalNotes || 'Patient completed specialist review. Vitals stable.',
-            diagnosis: diagnosis || 'Clinical Assessment Complete',
-            vitalsJson: vitals ? JSON.stringify(vitals) : undefined,
-            prescriptionJson: prescriptions ? JSON.stringify(prescriptions) : undefined,
+            clinicalNotes: clinicalNotes || 'Patient examined. Condition stable.',
+            diagnosis: diagnosis || 'Clinical evaluation completed.',
+            vitalsJson: JSON.stringify(vitals || {}),
+            prescriptionJson: JSON.stringify(prescription || []),
             createdAt: new Date(),
         };
-        dataStore.healthRecords.unshift(record);
-        // 2. Create Follow-Up if requested
+        dataStore.healthRecords.unshift(newRecord);
+        let createdFollowUp = null;
         if (createFollowUpDays) {
-            const followUpDate = new Date();
-            followUpDate.setDate(followUpDate.getDate() + (createFollowUpDays || 30));
-            dataStore.followUps.unshift({
+            const dueDate = new Date(Date.now() + createFollowUpDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            createdFollowUp = {
                 id: 'fol-' + Date.now(),
-                patientId: apt.patientId,
-                doctorId: apt.doctorId,
-                facilityId: apt.facilityId,
-                appointmentId: apt.id,
-                speciality: 'Cardiology',
-                dueDate: followUpDate.toISOString().split('T')[0],
+                patientId: pat.id,
+                doctorId: doc.id,
+                facilityId: doc.hospitalId,
+                appointmentId: apt?.id,
+                speciality: doc.speciality,
+                dueDate,
                 mode: 'TELECONSULTATION',
                 status: 'UPCOMING',
                 priority: 'NORMAL',
-                instructions: followUpInstructions || 'Routine follow-up assessment via local PHC kiosk.',
-                title: '30-Day Care Continuity Review',
+                instructions: followUpInstructions || 'Follow-up consultation.',
+                title: `Follow-Up: ${doc.speciality} Review`,
                 createdAt: new Date(),
                 updatedAt: new Date(),
-            });
+            };
+            dataStore.followUps.unshift(createdFollowUp);
         }
         res.json({
             success: true,
-            message: 'Consultation completed. Health record and follow-up created.',
             data: {
-                appointment: apt,
-                healthRecord: record,
+                healthRecord: newRecord,
+                followUp: createdFollowUp,
             },
+            message: 'Consultation successfully recorded with updated clinical records and continuity plan.',
         });
     }
     catch (error) {

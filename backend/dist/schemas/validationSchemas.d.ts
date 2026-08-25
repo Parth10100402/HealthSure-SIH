@@ -85,33 +85,39 @@ export declare const createAppointmentSchema: z.ZodObject<{
     facilityId: z.ZodString;
     outreachId: z.ZodOptional<z.ZodString>;
     referralId: z.ZodOptional<z.ZodString>;
-    date: z.ZodString;
-    startTime: z.ZodString;
+    scheduledAt: z.ZodOptional<z.ZodString>;
+    date: z.ZodOptional<z.ZodString>;
+    startTime: z.ZodOptional<z.ZodString>;
     endTime: z.ZodOptional<z.ZodString>;
     mode: z.ZodDefault<z.ZodEnum<["IN_PERSON", "OUTREACH", "TELECONSULTATION"]>>;
     reasonForVisit: z.ZodOptional<z.ZodString>;
+    idempotencyKey: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
-    date: string;
     doctorId: string;
     facilityId: string;
-    startTime: string;
     mode: "IN_PERSON" | "OUTREACH" | "TELECONSULTATION";
+    date?: string | undefined;
     patientId?: string | undefined;
     outreachId?: string | undefined;
     referralId?: string | undefined;
+    scheduledAt?: string | undefined;
+    startTime?: string | undefined;
     endTime?: string | undefined;
     reasonForVisit?: string | undefined;
+    idempotencyKey?: string | undefined;
 }, {
-    date: string;
     doctorId: string;
     facilityId: string;
-    startTime: string;
+    date?: string | undefined;
     patientId?: string | undefined;
     outreachId?: string | undefined;
     referralId?: string | undefined;
+    scheduledAt?: string | undefined;
+    startTime?: string | undefined;
     endTime?: string | undefined;
     mode?: "IN_PERSON" | "OUTREACH" | "TELECONSULTATION" | undefined;
     reasonForVisit?: string | undefined;
+    idempotencyKey?: string | undefined;
 }>;
 export declare const bookOutreachSlotSchema: z.ZodObject<{
     patientId: z.ZodOptional<z.ZodString>;

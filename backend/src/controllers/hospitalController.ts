@@ -1,8 +1,9 @@
-// HealthSure — Hospital Staff Controller
+// HealthSure — Hospital Staff Controller with Canonical DateTime
 // backend/src/controllers/hospitalController.ts
 
 import type { Request, Response, NextFunction } from 'express';
 import { dataStore } from '../db/store.js';
+import { createUtcInstantFromIst, formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime.js';
 
 export const getMyHospitalProfile = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -81,6 +82,9 @@ export const patchHospitalReferral = async (req: Request, res: Response, next: N
       const doc = dataStore.doctors[0];
       const fac = dataStore.facilities.find((f) => f.id === ref.receivingHospitalId) || dataStore.facilities[4];
 
+      const targetDate = appointmentDate || '2026-08-28';
+      const scheduledAt = createUtcInstantFromIst(targetDate, '10:30 AM');
+
       const newApt = {
         id: 'apt-' + Date.now(),
         appointmentId: `HS-APT-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -88,8 +92,9 @@ export const patchHospitalReferral = async (req: Request, res: Response, next: N
         doctorId: doc.id,
         facilityId: fac.id,
         referralId: ref.id,
-        date: appointmentDate || '2026-08-28',
-        startTime: '10:30 AM',
+        scheduledAt,
+        date: formatAppointmentDate(scheduledAt),
+        startTime: formatAppointmentTime(scheduledAt),
         endTime: '11:00 AM',
         mode: 'IN_PERSON' as const,
         status: 'CONFIRMED' as const,

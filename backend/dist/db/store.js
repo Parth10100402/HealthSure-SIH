@@ -1,5 +1,4 @@
-// HealthSure — Production In-Memory Database Store with Demo Seed Data
-// backend/src/db/store.ts
+import { createUtcInstantFromIst } from '../utils/dateTime.js';
 import bcrypt from 'bcryptjs';
 class DataStore {
     users = [];
@@ -471,6 +470,7 @@ class DataStore {
             facilityId: phcKhed.id,
             outreachId: outreach1.id,
             referralId: referral1.id,
+            scheduledAt: createUtcInstantFromIst('2026-08-28', '10:30 AM'),
             date: '2026-08-28',
             startTime: '10:30 AM',
             endTime: '11:00 AM',
@@ -605,6 +605,7 @@ class DataStore {
         const doc = this.doctors.find((d) => d.id === outreach.doctorId);
         const aptId = 'apt-' + Date.now();
         const tokenNum = `MMU-${Math.floor(10 + Math.random() * 90)}`;
+        const scheduledAt = createUtcInstantFromIst(outreach.date, outreach.startTime);
         const newAppointment = {
             id: aptId,
             appointmentId: `HS-APT-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -612,6 +613,7 @@ class DataStore {
             doctorId: outreach.doctorId,
             facilityId: outreach.hospitalId,
             outreachId: outreach.id,
+            scheduledAt,
             date: outreach.date,
             startTime: outreach.startTime,
             endTime: outreach.endTime,

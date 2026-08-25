@@ -1,7 +1,8 @@
-// HealthSure — Appointments Controller
+// HealthSure — Appointments Controller with Canonical DateTime & Atomic Transactions
 // backend/src/controllers/appointmentController.ts
 import { dataStore } from '../db/store.js';
 import { createAppointmentSchema } from '../schemas/validationSchemas.js';
+import { createUtcInstantFromIst, formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime.js';
 export const getAppointments = async (req, res, next) => {
     try {
         const { status, mode, doctorId, patientId } = req.query;
@@ -27,14 +28,21 @@ export const getAppointments = async (req, res, next) => {
             list = list.filter((a) => a.doctorId === doctorId);
         if (patientId)
             list = list.filter((a) => a.patientId === patientId);
-        // Enrich with patient and doctor details
+        // Enrich with patient, doctor, facility, and canonical datetime
         const enriched = list.map((a) => {
             const pat = dataStore.patients.find((p) => p.id === a.patientId);
             const doc = dataStore.doctors.find((d) => d.id === a.doctorId);
             const fac = dataStore.facilities.find((f) => f.id === a.facilityId);
             const tele = dataStore.teleconsultations.find((t) => t.appointmentId === a.id || t.id === a.id);
+            const scheduledAt = a.scheduledAt || createUtcInstantFromIst(a.date, a.startTime);
+            const displayTime = formatAppointmentTime(scheduledAt);
+            const displayDate = formatAppointmentDate(scheduledAt);
             return {
                 ...a,
+                scheduledAt,
+                date: displayDate,
+                startTime: displayTime,
+                time: displayTime,
                 patientName: pat?.fullName || 'Patient',
                 patientMobile: pat?.mobile,
                 doctorName: doc?.name || 'Dr. Specialist',
@@ -63,10 +71,17 @@ export const getAppointmentById = async (req, res, next) => {
         const pat = dataStore.patients.find((p) => p.id === apt.patientId);
         const doc = dataStore.doctors.find((d) => d.id === apt.doctorId);
         const fac = dataStore.facilities.find((f) => f.id === apt.facilityId);
+        const scheduledAt = apt.scheduledAt || createUtcInstantFromIst(apt.date, apt.startTime);
+        const displayTime = formatAppointmentTime(scheduledAt);
+        const displayDate = formatAppointmentDate(scheduledAt);
         res.json({
             success: true,
             data: {
                 ...apt,
+                scheduledAt,
+                date: displayDate,
+                startTime: displayTime,
+                time: displayTime,
                 patient: pat,
                 doctor: doc,
                 facility: fac,
@@ -80,6 +95,18 @@ export const getAppointmentById = async (req, res, next) => {
 export const createAppointment = async (req, res, next) => {
     try {
         const body = createAppointmentSchema.parse(req.body);
+        // Idempotency check
+        if (body.idempotencyKey) {
+            const existing = dataStore.appointments.find((a) => a.idempotencyKey === body.idempotencyKey);
+            if (existing) {
+                res.status(200).json({
+                    success: true,
+                    data: existing,
+                    message: 'Appointment retrieved via idempotency key.',
+                });
+                return;
+            }
+        }
         let patientId = body.patientId;
         if (!patientId && req.user?.role === 'PATIENT') {
             const pat = dataStore.patients.find((p) => p.userId === req.user?.userId);
@@ -88,6 +115,25 @@ export const createAppointment = async (req, res, next) => {
         else if (!patientId) {
             patientId = dataStore.patients[0].id;
         }
+        // Atomic slot check if linked to outreach
+        if (body.outreachId) {
+            const outreach = dataStore.outreachSchedules.find((o) => o.id === body.outreachId || o.outreachId === body.outreachId);
+            if (outreach) {
+                if (outreach.availableSlots <= 0) {
+                    res.status(409).json({ success: false, message: 'Selected specialist outreach slot is no longer available.' });
+                    return;
+                }
+                outreach.availableSlots -= 1;
+                outreach.updatedAt = new Date();
+            }
+        }
+        // Canonical UTC instant
+        let scheduledAt = body.scheduledAt;
+        if (!scheduledAt) {
+            scheduledAt = createUtcInstantFromIst(body.date || '2026-08-28', body.startTime || '10:30 AM');
+        }
+        const displayDate = formatAppointmentDate(scheduledAt);
+        const displayTime = formatAppointmentTime(scheduledAt);
         const newApt = {
             id: 'apt-' + Date.now(),
             appointmentId: `HS-APT-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -96,13 +142,15 @@ export const createAppointment = async (req, res, next) => {
             facilityId: body.facilityId,
             outreachId: body.outreachId,
             referralId: body.referralId,
-            date: body.date,
-            startTime: body.startTime,
-            endTime: body.endTime,
+            scheduledAt,
+            date: displayDate,
+            startTime: displayTime,
+            endTime: body.endTime || '11:00 AM',
             mode: body.mode,
             status: 'CONFIRMED',
             token: `TOKEN-${Math.floor(10 + Math.random() * 90)}`,
             reasonForVisit: body.reasonForVisit || 'Specialist Consultation',
+            idempotencyKey: body.idempotencyKey,
             createdAt: new Date(),
             updatedAt: new Date(),
         };

@@ -123,6 +123,7 @@ export interface AppointmentEntity {
     facilityId: string;
     outreachId?: string;
     referralId?: string;
+    scheduledAt: string;
     date: string;
     startTime: string;
     endTime?: string;
@@ -130,6 +131,7 @@ export interface AppointmentEntity {
     status: AppointmentStatus;
     token?: string;
     reasonForVisit?: string;
+    idempotencyKey?: string;
     createdAt: Date;
     updatedAt: Date;
 }

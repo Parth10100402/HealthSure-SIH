@@ -1,3 +1,4 @@
+import { createUtcInstantFromIst, formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime.js';
 // HealthSure — Production In-Memory Database Store with Demo Seed Data
 // backend/src/db/store.ts
 
@@ -528,6 +529,7 @@ class DataStore {
       facilityId: phcKhed.id,
       outreachId: outreach1.id,
       referralId: referral1.id,
+      scheduledAt: createUtcInstantFromIst('2026-08-28', '10:30 AM'),
       date: '2026-08-28',
       startTime: '10:30 AM',
       endTime: '11:00 AM',
@@ -678,6 +680,7 @@ class DataStore {
 
     const aptId = 'apt-' + Date.now();
     const tokenNum = `MMU-${Math.floor(10 + Math.random() * 90)}`;
+    const scheduledAt = createUtcInstantFromIst(outreach.date, outreach.startTime);
 
     const newAppointment: AppointmentEntity = {
       id: aptId,
@@ -686,6 +689,7 @@ class DataStore {
       doctorId: outreach.doctorId,
       facilityId: outreach.hospitalId,
       outreachId: outreach.id,
+      scheduledAt,
       date: outreach.date,
       startTime: outreach.startTime,
       endTime: outreach.endTime,
