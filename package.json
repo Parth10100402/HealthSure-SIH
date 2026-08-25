@@ -5,8 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm --prefix backend run build && tsc -b && vite build",
-    "postinstall": "npm --prefix backend install && npm --prefix backend run build",
+    "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
     "server:start": "node server/server.js",
