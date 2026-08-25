@@ -119,7 +119,7 @@ export const getDoctorFollowUps = async (req, res, next) => {
 };
 export const completeConsultation = async (req, res, next) => {
     try {
-        const { appointmentId, patientId, clinicalNotes, diagnosis, vitals, prescription, createFollowUpDays, followUpInstructions } = req.body;
+        const { appointmentId, patientId, clinicalNotes, diagnosis, vitals, prescription, prescriptions, createFollowUp, createFollowUpDays, followUpDays, followUpInstructions, } = req.body;
         const doc = dataStore.doctors.find((d) => d.userId === req.user?.userId || d.id === req.user?.doctorId) || dataStore.doctors[0];
         const pat = dataStore.patients.find((p) => p.id === patientId) || dataStore.patients[0];
         const apt = dataStore.appointments.find((a) => a.id === appointmentId || a.appointmentId === appointmentId);
@@ -140,13 +140,14 @@ export const completeConsultation = async (req, res, next) => {
             clinicalNotes: clinicalNotes || 'Patient examined. Condition stable.',
             diagnosis: diagnosis || 'Clinical evaluation completed.',
             vitalsJson: JSON.stringify(vitals || {}),
-            prescriptionJson: JSON.stringify(prescription || []),
+            prescriptionJson: JSON.stringify(prescriptions || prescription || []),
             createdAt: new Date(),
         };
         dataStore.healthRecords.unshift(newRecord);
+        const targetFollowUpDays = followUpDays || createFollowUpDays || (createFollowUp ? 30 : 0);
         let createdFollowUp = null;
-        if (createFollowUpDays) {
-            const dueDate = new Date(Date.now() + createFollowUpDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        if (targetFollowUpDays) {
+            const dueDate = new Date(Date.now() + targetFollowUpDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
             createdFollowUp = {
                 id: 'fol-' + Date.now(),
                 patientId: pat.id,

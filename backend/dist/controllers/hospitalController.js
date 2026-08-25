@@ -1,7 +1,6 @@
-// HealthSure — Hospital Staff Controller with Canonical DateTime
-// backend/src/controllers/hospitalController.ts
 import { dataStore } from '../db/store.js';
 import { createUtcInstantFromIst, formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime.js';
+import { publishCloudAppointment } from '../db/cloudSync.js';
 export const getMyHospitalProfile = async (_req, res, next) => {
     try {
         const hospital = dataStore.facilities.find((f) => f.type === 'DISTRICT_HOSPITAL') || dataStore.facilities[4];
@@ -94,6 +93,7 @@ export const patchHospitalReferral = async (req, res, next) => {
                 updatedAt: new Date(),
             };
             dataStore.appointments.unshift(newApt);
+            publishCloudAppointment(newApt);
             if (pat) {
                 dataStore.notifications.unshift({
                     id: 'notif-' + Date.now(),

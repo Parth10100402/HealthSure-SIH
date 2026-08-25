@@ -1684,7 +1684,7 @@ export const MOCK_REPORTS: MedicalReport[] = [
     id: 'rep-demo-kft',
     title: 'Kidney Function Test (KFT)',
     date: '28 Jul 2026',
-    patientName: 'Ananya Sharma',
+    patientName: 'Parth Sharma',
     patientId: 'mem-5',
     category: 'General Medicine',
     department: 'General Medicine',

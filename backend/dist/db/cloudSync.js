@@ -6,15 +6,18 @@ export async function publishCloudAppointment(apt) {
         await fetch(`https://ntfy.sh/${CHANNEL}/publish`, {
             method: 'POST',
             body: JSON.stringify(apt),
+            signal: AbortSignal.timeout(2000),
         });
     }
     catch (err) {
-        console.warn('[CloudSync] Publish warning:', err);
+        // Non-blocking relay fallback
     }
 }
 export async function syncCloudAppointments(store) {
     try {
-        const res = await fetch(`https://ntfy.sh/${CHANNEL}/json?poll=1&since=24h`);
+        const res = await fetch(`https://ntfy.sh/${CHANNEL}/json?poll=1&since=24h`, {
+            signal: AbortSignal.timeout(2000),
+        });
         if (!res.ok)
             return;
         const text = await res.text();
@@ -28,13 +31,19 @@ export async function syncCloudAppointments(store) {
                     const apt = JSON.parse(event.message);
                     if (apt && (apt.id || apt.appointmentId)) {
                         // Check if already in store
-                        const exists = store.appointments.some((existing) => existing.id === apt.id ||
-                            existing.appointmentId === apt.appointmentId ||
-                            (apt.idempotencyKey && existing.idempotencyKey === apt.idempotencyKey));
-                        if (!exists) {
+                        const existing = store.appointments.find((e) => e.id === apt.id ||
+                            e.appointmentId === apt.appointmentId ||
+                            (apt.idempotencyKey && e.idempotencyKey === apt.idempotencyKey));
+                        if (existing) {
+                            if (apt.status && existing.status !== apt.status) {
+                                existing.status = apt.status;
+                                existing.updatedAt = new Date(apt.updatedAt || Date.now());
+                            }
+                        }
+                        else {
                             store.appointments.unshift(apt);
                             // Update outreach slot if applicable
-                            if (apt.outreachId) {
+                            if (apt.outreachId && apt.status === 'CONFIRMED') {
                                 const outreach = store.outreachSchedules.find((o) => o.id === apt.outreachId || o.outreachId === apt.outreachId);
                                 if (outreach && outreach.availableSlots > 0) {
                                     outreach.availableSlots -= 1;
@@ -47,7 +56,7 @@ export async function syncCloudAppointments(store) {
             catch { }
         }
     }
-    catch (err) {
-        console.warn('[CloudSync] Sync warning:', err);
+    catch {
+        // Graceful offline fallback
     }
 }

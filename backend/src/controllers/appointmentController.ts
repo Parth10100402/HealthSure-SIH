@@ -236,14 +236,18 @@ export const deleteAppointment = async (req: Request, res: Response, next: NextF
 
     // If it was linked to outreach, release slot
     if (apt.outreachId) {
-      const outreach = dataStore.outreachSchedules.find((o) => o.id === apt.outreachId);
+      const outreach = dataStore.outreachSchedules.find((o) => o.id === apt.outreachId || o.outreachId === apt.outreachId);
       if (outreach && outreach.availableSlots < outreach.totalSlots) {
         outreach.availableSlots += 1;
+        outreach.updatedAt = new Date();
       }
     }
 
+    publishCloudAppointment(apt);
+
     res.json({
       success: true,
+      data: apt,
       message: 'Appointment cancelled.',
     });
   } catch (error) {

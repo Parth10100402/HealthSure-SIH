@@ -88,6 +88,7 @@ export const bookOutreachSlot = async (req: Request, res: Response, next: NextFu
 
     // Execute atomic slot decrement & appointment creation
     const { appointment, outreach } = dataStore.bookOutreachSlot(String(id), patientId, body.reasonForVisit);
+    publishCloudAppointment(appointment);
 
     const doc = dataStore.doctors.find((d) => d.id === outreach.doctorId);
 

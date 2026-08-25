@@ -10,7 +10,8 @@ export const getAdminOverview = async (_req: Request, res: Response, next: NextF
   try {
     const baseAppointments = 1240;
     const initialAptCount = 1;
-    const totalAppointments = baseAppointments + Math.max(0, dataStore.appointments.length - initialAptCount);
+    const validAppointments = dataStore.appointments.filter((a) => a.status !== 'CANCELLED');
+    const totalAppointments = baseAppointments + Math.max(0, validAppointments.length - initialAptCount);
 
     const basePatients = 12840;
     const initialPatCount = 1;

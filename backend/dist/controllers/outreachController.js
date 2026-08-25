@@ -1,3 +1,4 @@
+import { publishCloudAppointment } from '../db/cloudSync.js';
 import { dataStore } from '../db/store.js';
 import { bookOutreachSlotSchema } from '../schemas/validationSchemas.js';
 export const getOutreachSchedules = async (req, res, next) => {
@@ -73,6 +74,7 @@ export const bookOutreachSlot = async (req, res, next) => {
         }
         // Execute atomic slot decrement & appointment creation
         const { appointment, outreach } = dataStore.bookOutreachSlot(String(id), patientId, body.reasonForVisit);
+        publishCloudAppointment(appointment);
         const doc = dataStore.doctors.find((d) => d.id === outreach.doctorId);
         res.status(201).json({
             success: true,
