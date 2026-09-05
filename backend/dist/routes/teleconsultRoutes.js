@@ -1,10 +1,11 @@
 // HealthSure — Teleconsultation Routes
 // backend/src/routes/teleconsultRoutes.ts
 import { Router } from 'express';
-import { getTeleconsultations, getTeleconsultById, getTeleconsultSession, joinTeleconsult, liveTeleconsult, leaveTeleconsult, patchTeleconsult, sendSignal, getSignals, clearSignals, } from '../controllers/teleconsultController.js';
+import { getTeleconsultations, getTeleconsultById, getTeleconsultSession, joinTeleconsult, liveTeleconsult, leaveTeleconsult, patchTeleconsult, sendSignal, getSignals, clearSignals, getIceServersConfig, } from '../controllers/teleconsultController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 const router = Router();
 router.get('/', authenticate, getTeleconsultations);
+router.get('/ice-servers', getIceServersConfig);
 router.get('/:id', authenticate, getTeleconsultById);
 router.get('/:id/session', getTeleconsultSession);
 router.post('/:id/join', joinTeleconsult);

@@ -145,6 +145,7 @@ export const TeleconsultRoomMock: React.FC<{
     isRemoteAttached,
     peerJoined,
     candidateStats,
+    candidatePairStats,
     toggleCamera,
     toggleMic,
     toggleLowBandwidth,
@@ -375,6 +376,15 @@ export const TeleconsultRoomMock: React.FC<{
                 <span>ICE: {iceConnectionState} (Host:{candidateStats.host} Srflx:{candidateStats.srflx} Relay:{candidateStats.relay})</span>
                 <span>•</span>
                 <span>Sig: {signalingState}</span>
+                {candidatePairStats && (
+                  <>
+                    <span>•</span>
+                    <span className="text-cyan-300">
+                      Pair: {candidatePairStats.localCandidateType} ↔ {candidatePairStats.remoteCandidateType}
+                      {candidatePairStats.currentRoundTripTime ? ` (${Math.round(candidatePairStats.currentRoundTripTime * 1000)}ms)` : ''}
+                    </span>
+                  </>
+                )}
                 <span>•</span>
                 <span>Timer: {formatTimer(callDuration)}</span>
               </div>

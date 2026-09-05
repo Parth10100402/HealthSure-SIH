@@ -569,3 +569,61 @@ export const patchTeleconsult = async (req, res, next) => {
         next(error);
     }
 };
+/**
+ * Dynamic ICE/STUN/TURN Configuration Endpoint
+ * Resolves reliable STUN endpoints and dynamic/env-configured TURN servers.
+ * Excludes any broken or untrusted openrelay endpoints.
+ */
+export const getIceServersConfig = async (req, res) => {
+    const stunServers = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        { urls: 'stun:stun.services.mozilla.com' },
+    ];
+    const iceServers = [...stunServers];
+    // 1. Dynamic Metered API if METERED_DOMAIN & METERED_API_KEY are configured
+    const meteredDomain = process.env.METERED_DOMAIN || process.env.VITE_METERED_DOMAIN;
+    const meteredApiKey = process.env.METERED_API_KEY || process.env.VITE_METERED_API_KEY;
+    if (meteredDomain && meteredApiKey) {
+        try {
+            const resp = await fetch(`https://${meteredDomain}/api/v1/turn/credentials?apiKey=${meteredApiKey}`, {
+                // 3 second abort timeout
+                signal: AbortSignal.timeout ? AbortSignal.timeout(3000) : undefined,
+            });
+            if (resp.ok) {
+                const meteredServers = await resp.json();
+                if (Array.isArray(meteredServers) && meteredServers.length > 0) {
+                    iceServers.unshift(...meteredServers);
+                }
+            }
+        }
+        catch (e) {
+            console.warn('[ICE] Dynamic Metered lookup deferred / unavailable:', e.message);
+        }
+    }
+    // 2. Custom TURN server via environment variables (TURN_URL / VITE_TURN_URL)
+    const turnUrl = process.env.TURN_URL || process.env.VITE_TURN_URL;
+    const turnUsername = process.env.TURN_USERNAME || process.env.VITE_TURN_USERNAME;
+    const turnCredential = process.env.TURN_CREDENTIAL || process.env.VITE_TURN_CREDENTIAL;
+    if (turnUrl) {
+        const urls = turnUrl.includes(',') ? turnUrl.split(',').map((s) => s.trim()) : turnUrl;
+        iceServers.unshift({
+            urls,
+            username: turnUsername || undefined,
+            credential: turnCredential || undefined,
+        });
+    }
+    res.json({
+        success: true,
+        data: {
+            iceServers,
+            iceCandidatePoolSize: 10,
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require',
+        },
+    });
+};

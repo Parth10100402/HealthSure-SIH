@@ -20,6 +20,16 @@ export interface UseWebRTCOptions {
   autoStart?: boolean;
 }
 
+export interface CandidatePairDiagnostics {
+  state: string;
+  localCandidateType: string;
+  remoteCandidateType: string;
+  protocol?: string;
+  currentRoundTripTime?: number;
+  bytesSent?: number;
+  bytesReceived?: number;
+}
+
 export interface UseWebRTCResult {
   connectionState: WebRTCConnectionState;
   iceConnectionState: string;
@@ -40,6 +50,7 @@ export interface UseWebRTCResult {
   isRemoteAttached: boolean;
   peerJoined: boolean;
   candidateStats: { host: number; srflx: number; relay: number };
+  candidatePairStats: CandidatePairDiagnostics | null;
   toggleCamera: () => void;
   toggleMic: () => void;
   toggleLowBandwidth: () => void;
@@ -50,7 +61,12 @@ export interface UseWebRTCResult {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
-// Dynamic ICE Server Configuration with Verified STUN + Configurable TURN
+/**
+ * Reliable Base ICE Server Configuration
+ * STUN: Google STUN cluster + Cloudflare + Mozilla (All verified high availability)
+ * TURN: Configured strictly via environment variables (VITE_TURN_URL or dynamic API)
+ * Note: Broken/untrusted static openrelay endpoints with certificate mismatches are strictly excluded.
+ */
 function getIceServers(): RTCConfiguration {
   const iceServers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -60,8 +76,6 @@ function getIceServers(): RTCConfiguration {
     { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
     { urls: 'stun:stun.services.mozilla.com' },
-    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelay', credential: 'openrelay' },
-    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelay', credential: 'openrelay' },
   ];
 
   const customTurnUrl = import.meta.env.VITE_TURN_URL;
@@ -69,8 +83,9 @@ function getIceServers(): RTCConfiguration {
   const customTurnCredential = import.meta.env.VITE_TURN_CREDENTIAL;
 
   if (customTurnUrl) {
+    const urls = customTurnUrl.includes(',') ? customTurnUrl.split(',').map((s: string) => s.trim()) : customTurnUrl;
     iceServers.unshift({
-      urls: customTurnUrl,
+      urls,
       username: customTurnUsername || undefined,
       credential: customTurnCredential || undefined,
     });
@@ -83,6 +98,29 @@ function getIceServers(): RTCConfiguration {
     rtcpMuxPolicy: 'require',
   };
 }
+
+/**
+ * Dynamically resolves ICE configuration from backend `/api/teleconsultations/ice-servers`
+ * with automatic fallback to client-side STUN/TURN configuration.
+ */
+async function fetchIceConfiguration(): Promise<RTCConfiguration> {
+  const fallback = getIceServers();
+  try {
+    const res = await fetch(`${API_BASE_URL}/teleconsultations/ice-servers`, {
+      signal: (AbortSignal as any).timeout ? (AbortSignal as any).timeout(3000) : undefined,
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && json.data && Array.isArray(json.data.iceServers) && json.data.iceServers.length > 0) {
+        return json.data;
+      }
+    }
+  } catch {
+    // Network fallback to getIceServers()
+  }
+  return fallback;
+}
+
 
 export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptions): UseWebRTCResult {
   // Canonical session ID resolution
@@ -114,6 +152,7 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     srflx: 0,
     relay: 0,
   });
+  const [candidatePairStats, setCandidatePairStats] = useState<CandidatePairDiagnostics | null>(null);
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -269,6 +308,77 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     [log]
   );
 
+  // Helper to query RTCIceCandidatePairStats for verified media flow and active nominated pairs
+  const queryCandidatePairStats = useCallback(
+    async (activePC: RTCPeerConnection) => {
+      try {
+        const stats = await activePC.getStats();
+        let selectedPair: any = null;
+        let localCand: any = null;
+        let remoteCand: any = null;
+
+        stats.forEach((report) => {
+          if (
+            report.type === 'candidate-pair' &&
+            (report.selected || report.nominated || report.state === 'succeeded')
+          ) {
+            selectedPair = report;
+          }
+        });
+
+        if (selectedPair) {
+          stats.forEach((report) => {
+            if (report.id === selectedPair.localCandidateId) localCand = report;
+            if (report.id === selectedPair.remoteCandidateId) remoteCand = report;
+          });
+
+          const localType = localCand?.candidateType || localCand?.type || 'unknown';
+          const remoteType = remoteCand?.candidateType || remoteCand?.type || 'unknown';
+          const protocol = selectedPair.protocol || localCand?.protocol || 'udp';
+
+          setCandidatePairStats({
+            state: selectedPair.state,
+            localCandidateType: localType,
+            remoteCandidateType: remoteType,
+            protocol,
+            currentRoundTripTime: selectedPair.currentRoundTripTime,
+            bytesSent: selectedPair.bytesSent,
+            bytesReceived: selectedPair.bytesReceived,
+          });
+
+          log(
+            'ICE_PAIR',
+            `Selected candidate pair [${selectedPair.state}]: ${localType} <-> ${remoteType} (${protocol}) rtt=${selectedPair.currentRoundTripTime ?? 0}s bytesSent=${selectedPair.bytesSent ?? 0} bytesRecv=${selectedPair.bytesReceived ?? 0}`
+          );
+        }
+      } catch (err: any) {
+        log('ICE_PAIR', 'Failed reading candidate pair stats:', err.message);
+      }
+    },
+    [log]
+  );
+
+  // Attempt ICE restart upon connectivity failure
+  const attemptIceRestart = useCallback(
+    async (activePC: RTCPeerConnection) => {
+      try {
+        log('ICE', 'Triggering ICE restart recovery sequence...');
+        if ('restartIce' in activePC && typeof (activePC as any).restartIce === 'function') {
+          (activePC as any).restartIce();
+        }
+        if (role === 'patient') {
+          const offer = await activePC.createOffer({ iceRestart: true });
+          await activePC.setLocalDescription(offer);
+          log('SIGNAL', 'Patient dispatched ICE restart Offer');
+          await sendSignalMessage('offer', offer);
+        }
+      } catch (err: any) {
+        log('ICE', 'ICE restart sequence failed:', err.message);
+      }
+    },
+    [role, sendSignalMessage, log]
+  );
+
   // Teardown local media, timers, and peer connection WITHOUT sending /leave to backend
   const cleanupLocalResources = useCallback(() => {
     log('STATE', 'Executing local resource teardown (preserving server session)');
@@ -406,9 +516,11 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
       localVideoRef.current.play().catch(() => {});
     }
 
-    // 4. Instantiate Singleton RTCPeerConnection
-    const config = getIceServers();
-    log('STATE', `Creating RTCPeerConnection (${config.iceServers?.length} ICE servers configured)`);
+    // 4. Instantiate Singleton RTCPeerConnection with dynamic/verified ICE servers
+    const config = await fetchIceConfiguration();
+    log('STATE', `Creating RTCPeerConnection (${config.iceServers?.length ?? 0} ICE servers configured)`, {
+      servers: config.iceServers?.map((s) => ({ urls: s.urls })),
+    });
     const pc = new RTCPeerConnection(config);
     peerConnectionRef.current = pc;
 
@@ -449,49 +561,76 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
       }
     };
 
+    // ICE Gathering State Change
+    pc.onicegatheringstatechange = () => {
+      log('ICE', `ICE gathering state transitioned -> ${pc.iceGatheringState}`);
+    };
+
+    // ICE Candidate Error Handling (STUN vs TURN failure diagnostics)
+    (pc as any).onicecandidateerror = (event: any) => {
+      const url = event.url || 'unknown';
+      const isTurn = url.startsWith('turn:');
+      const isStun = url.startsWith('stun:');
+      log(
+        'ICE_ERROR',
+        `${isTurn ? 'TURN allocate' : isStun ? 'STUN binding' : 'ICE'} failure on ${url} (code=${event.errorCode} text="${event.errorText}")`
+      );
+    };
+
     // Candidate gathering handler
     pc.onicecandidate = (event) => {
       if (event.candidate && event.candidate.candidate && event.candidate.candidate.trim() !== '') {
         const typeMatch = event.candidate.candidate.match(/typ\s+(\w+)/);
         const candType = typeMatch ? typeMatch[1] : 'host';
+        const protoMatch = event.candidate.candidate.match(/\s(udp|tcp)\s/i);
+        const candProto = protoMatch ? protoMatch[1].toLowerCase() : 'udp';
 
         setCandidateStats((prev) => ({
           ...prev,
           [candType as keyof typeof prev]: (prev[candType as keyof typeof prev] || 0) + 1,
         }));
 
-        log('SIGNAL', `Local ICE candidate gathered: typ=${candType}`, {
+        log('ICE', `Local ICE candidate gathered: typ=${candType} proto=${candProto}`, {
           sdpMid: event.candidate.sdpMid,
-          candidate: event.candidate.candidate.substring(0, 50),
+          candidate: event.candidate.candidate.substring(0, 60),
         });
 
         sendSignalMessage('candidate', event.candidate.toJSON());
       } else {
-        log('SIGNAL', 'ICE gathering completed / null candidate received');
+        log('ICE', `Local ICE gathering complete (gatheringState=${pc.iceGatheringState})`);
       }
     };
 
     // ICE Connection State Change
     pc.oniceconnectionstatechange = () => {
       const state = pc.iceConnectionState;
-      log('STATE', `ICE connection state transitioned -> ${state}`);
+      log('ICE', `ICE connection state transitioned -> ${state} (gatheringState=${pc.iceGatheringState})`);
       setIceConnectionState(state);
 
-      if (state === 'connected' || state === 'completed') {
+      if (state === 'checking') {
+        log('ICE', 'ICE connectivity checks in-progress across candidate pairs');
+      } else if (state === 'connected' || state === 'completed') {
+        log('ICE', `ICE connectivity SUCCEEDED (${state}) — active candidate pair nominated`);
+        queryCandidatePairStats(pc);
         if (disconnectGraceTimerRef.current) {
           clearTimeout(disconnectGraceTimerRef.current);
           disconnectGraceTimerRef.current = null;
         }
       } else if (state === 'disconnected') {
-        log('STATE', 'Transient ICE disconnection — starting 20s recovery grace period');
+        log('ICE', 'Transient ICE disconnection — starting 20s recovery grace period');
         if (!disconnectGraceTimerRef.current) {
           disconnectGraceTimerRef.current = setTimeout(() => {
             if (peerConnectionRef.current && peerConnectionRef.current.iceConnectionState === 'disconnected') {
-              log('STATE', 'ICE recovery grace period expired — marking connection failed');
+              log('ICE', 'ICE recovery grace period expired — marking connection failed');
               setConnectionState('failed');
+              setErrorMessage('Connection timed out. Please click Retry.');
             }
           }, 20000);
         }
+      } else if (state === 'failed') {
+        log('ICE', 'ICE connectivity checks FAILED — attempting automatic ICE restart');
+        setErrorMessage('Media connectivity failed. Attempting ICE restart...');
+        attemptIceRestart(pc);
       }
     };
 
@@ -506,6 +645,8 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
           disconnectGraceTimerRef.current = null;
         }
         setConnectionState('connected');
+        setErrorMessage(null);
+        queryCandidatePairStats(pc);
 
         // Confirm LIVE state to backend
         fetch(`${API_BASE_URL}/teleconsultations/${canonicalSessionId}/live`, {
@@ -518,6 +659,7 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
       } else if (state === 'failed') {
         log('STATE', 'RTCPeerConnection failed');
         setConnectionState('failed');
+        setErrorMessage('Peer connection failed. You can click Retry Connection.');
       } else if (state === 'disconnected') {
         setConnectionState('disconnected');
       }
@@ -573,6 +715,11 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
           setIsRemoteAttached(true);
           remoteVideoRef.current.play().catch(() => {});
         }
+      }
+
+      // Continuously verify media flow & candidate pair stats when connection is connected
+      if (currentPC && currentPC.connectionState === 'connected') {
+        queryCandidatePairStats(currentPC);
       }
 
       try {
@@ -656,15 +803,17 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
               // Either peer receives Candidate
               else if (msg.type === 'candidate') {
                 if (msg.payload && msg.payload.candidate && msg.payload.candidate.trim() !== '') {
+                  const typeMatch = msg.payload.candidate.match(/typ\s+(\w+)/);
+                  const candType = typeMatch ? typeMatch[1] : 'unknown';
                   if (currentPC.remoteDescription && currentPC.remoteDescription.type) {
                     try {
                       await currentPC.addIceCandidate(new RTCIceCandidate(msg.payload));
-                      log('SIGNAL', 'Inbound ICE candidate applied immediately', { sdpMid: msg.payload.sdpMid });
+                      log('ICE', `Inbound remote ICE candidate applied: typ=${candType}`, { sdpMid: msg.payload.sdpMid });
                     } catch (candErr: any) {
-                      log('SIGNAL', 'ICE candidate application error (non-fatal)', candErr.message);
+                      log('ICE', `Inbound candidate application non-fatal error: typ=${candType}`, candErr.message);
                     }
                   } else {
-                    log('SIGNAL', 'ICE candidate queued (awaiting remote description)', { sdpMid: msg.payload.sdpMid });
+                    log('ICE', `Inbound remote ICE candidate queued: typ=${candType} (awaiting remoteDescription)`, { sdpMid: msg.payload.sdpMid });
                     pendingCandidatesQueueRef.current.push(msg.payload);
                   }
                 }
@@ -777,6 +926,7 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     isRemoteAttached,
     peerJoined,
     candidateStats,
+    candidatePairStats,
     toggleCamera,
     toggleMic,
     toggleLowBandwidth,
@@ -785,3 +935,4 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     retryConnection,
   };
 }
+

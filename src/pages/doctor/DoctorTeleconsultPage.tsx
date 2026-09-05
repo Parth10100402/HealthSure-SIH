@@ -63,6 +63,7 @@ export const DoctorTeleconsultPage: React.FC = () => {
     remoteTracks,
     isRemoteAttached,
     candidateStats,
+    candidatePairStats,
     toggleCamera,
     toggleMic,
     toggleLowBandwidth,
@@ -353,12 +354,21 @@ export const DoctorTeleconsultPage: React.FC = () => {
 
             {/* Doctor WebRTC Diagnostics Bar */}
             <div className="px-4 py-2 rounded-2xl bg-slate-950 border border-slate-800 text-[10px] font-mono text-slate-300 flex flex-wrap items-center justify-between gap-2 shadow-sm">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-emerald-400 font-bold">P2P: {connectionState}</span>
                 <span>•</span>
                 <span>ICE: {iceConnectionState} (H:{candidateStats.host} S:{candidateStats.srflx} R:{candidateStats.relay})</span>
                 <span>•</span>
                 <span>Sig: {signalingState}</span>
+                {candidatePairStats && (
+                  <>
+                    <span>•</span>
+                    <span className="text-cyan-300">
+                      Pair: {candidatePairStats.localCandidateType} ↔ {candidatePairStats.remoteCandidateType}
+                      {candidatePairStats.currentRoundTripTime ? ` (${Math.round(candidatePairStats.currentRoundTripTime * 1000)}ms)` : ''}
+                    </span>
+                  </>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <span>Local: {localTracks.audio ? '🎤' : '❌'}{localTracks.video ? '📹' : '❌'}</span>

@@ -45,3 +45,9 @@ export declare const sendSignal: (req: Request, res: Response, next: NextFunctio
 export declare const getSignals: (req: Request, res: Response, next: NextFunction) => Promise<void>;
 export declare const clearSignals: (req: Request, res: Response, next: NextFunction) => Promise<void>;
 export declare const patchTeleconsult: (req: Request, res: Response, next: NextFunction) => Promise<void>;
+/**
+ * Dynamic ICE/STUN/TURN Configuration Endpoint
+ * Resolves reliable STUN endpoints and dynamic/env-configured TURN servers.
+ * Excludes any broken or untrusted openrelay endpoints.
+ */
+export declare const getIceServersConfig: (req: Request, res: Response) => Promise<void>;

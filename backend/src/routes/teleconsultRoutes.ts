@@ -13,12 +13,14 @@ import {
   sendSignal,
   getSignals,
   clearSignals,
+  getIceServersConfig,
 } from '../controllers/teleconsultController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
 router.get('/', authenticate, getTeleconsultations);
+router.get('/ice-servers', getIceServersConfig);
 router.get('/:id', authenticate, getTeleconsultById);
 router.get('/:id/session', getTeleconsultSession);
 router.post('/:id/join', joinTeleconsult);
