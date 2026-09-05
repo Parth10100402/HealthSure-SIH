@@ -242,7 +242,7 @@ export const joinTeleconsult = async (req, res, next) => {
             actor: role,
             explicitUserAction: true,
         });
-        // Broadcast presence signal
+        // Broadcast presence signal — write to DB first (serverless-safe)
         const presenceMsg = {
             id: `sig-${now}-presence-${role}`,
             sessionId: id,
@@ -251,14 +251,12 @@ export const joinTeleconsult = async (req, res, next) => {
             payload: { role, status: presence.status, patientJoined: presence.patientJoined, doctorJoined: presence.doctorJoined },
             timestamp: now,
         };
+        // DB write first (authoritative)
+        await persistSignalToDB(presenceMsg);
+        // Memory cache write
         const messages = inMemorySignalingStore.get(id) || [];
         messages.push(presenceMsg);
         inMemorySignalingStore.set(id, messages);
-        // Relay via ntfy.sh
-        fetch(`https://ntfy.sh/healthsure-tele-${encodeURIComponent(id)}/publish`, {
-            method: 'POST',
-            body: JSON.stringify(presenceMsg),
-        }).catch(() => { });
         res.json({
             success: true,
             data: presence,
@@ -285,7 +283,7 @@ export const liveTeleconsult = async (req, res, next) => {
             explicitUserAction: true,
         });
         const presence = sessionPresenceStore.get(id);
-        // Broadcast live signal
+        // Persist live signal to DB for cross-instance visibility
         const liveMsg = {
             id: `sig-${now}-live-${role || 'peer'}`,
             sessionId: id,
@@ -294,13 +292,10 @@ export const liveTeleconsult = async (req, res, next) => {
             payload: { connected: true, timestamp: now },
             timestamp: now,
         };
+        await persistSignalToDB(liveMsg);
         const messages = inMemorySignalingStore.get(id) || [];
         messages.push(liveMsg);
         inMemorySignalingStore.set(id, messages);
-        fetch(`https://ntfy.sh/healthsure-tele-${encodeURIComponent(id)}/publish`, {
-            method: 'POST',
-            body: JSON.stringify(liveMsg),
-        }).catch(() => { });
         res.json({
             success: transitioned,
             data: presence,
@@ -339,6 +334,7 @@ export const leaveTeleconsult = async (req, res, next) => {
             actor: role,
             explicitUserAction: true,
         });
+        // Persist leave signal to DB so other instances know call ended
         const leaveMsg = {
             id: `sig-${now}-leave-${role}`,
             sessionId: id,
@@ -347,11 +343,10 @@ export const leaveTeleconsult = async (req, res, next) => {
             payload: { role, explicit: true },
             timestamp: now,
         };
-        // Relay via ntfy.sh
-        fetch(`https://ntfy.sh/healthsure-tele-${encodeURIComponent(id)}/publish`, {
-            method: 'POST',
-            body: JSON.stringify(leaveMsg),
-        }).catch(() => { });
+        await persistSignalToDB(leaveMsg);
+        const messages = inMemorySignalingStore.get(id) || [];
+        messages.push(leaveMsg);
+        inMemorySignalingStore.set(id, messages);
         res.json({
             success: transitioned,
             message: 'Left consultation session.',
@@ -361,6 +356,58 @@ export const leaveTeleconsult = async (req, res, next) => {
         next(error);
     }
 };
+// ── DB-primary signal write helper ──────────────────────────────────────────
+async function persistSignalToDB(msg) {
+    const prisma = getPrisma();
+    if (!prisma)
+        return;
+    try {
+        await prisma.teleconsultSignal.create({
+            data: {
+                id: msg.id,
+                sessionId: msg.sessionId,
+                senderRole: msg.senderRole,
+                type: msg.type,
+                payload: JSON.stringify(msg.payload),
+                timestamp: BigInt(msg.timestamp),
+            },
+        });
+    }
+    catch (dbErr) {
+        if (!dbErr?.message?.includes('Unique constraint') && !dbErr?.message?.includes('duplicate')) {
+            console.warn('[Signal] DB write error:', dbErr?.message);
+        }
+    }
+}
+// ── DB-primary signal read helper ────────────────────────────────────────────
+async function readSignalsFromDB(sessionId, since) {
+    const prisma = getPrisma();
+    if (!prisma)
+        return [];
+    try {
+        const rows = await prisma.teleconsultSignal.findMany({
+            where: { sessionId, timestamp: { gt: BigInt(since) } },
+            orderBy: { timestamp: 'asc' },
+            take: 200,
+        });
+        return rows.map((r) => ({
+            id: r.id,
+            sessionId: r.sessionId,
+            senderRole: r.senderRole,
+            type: r.type,
+            payload: (() => { try {
+                return JSON.parse(r.payload);
+            }
+            catch {
+                return r.payload;
+            } })(),
+            timestamp: Number(r.timestamp),
+        }));
+    }
+    catch {
+        return [];
+    }
+}
 // ── WebRTC Serverless Multi-Tier Signaling Engine ───────────────────────────
 export const sendSignal = async (req, res, next) => {
     try {
@@ -395,36 +442,20 @@ export const sendSignal = async (req, res, next) => {
                 explicitUserAction: true,
             });
         }
-        // 1. In-process memory store
+        // 1. DB write FIRST — authoritative across all Vercel instances
+        await persistSignalToDB(newMsg);
+        // 2. In-process memory cache (local read optimization)
         const messages = inMemorySignalingStore.get(id) || [];
         const fresh = messages.filter((m) => timestamp - m.timestamp < 300000); // 5 min TTL
         fresh.push(newMsg);
         inMemorySignalingStore.set(id, fresh);
-        // 2. Global Serverless Pub/Sub Relay (ntfy.sh)
+        // 3. Fire-and-forget ntfy.sh relay (secondary channel only — do NOT block on this)
         fetch(`https://ntfy.sh/healthsure-tele-${encodeURIComponent(id)}/publish`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newMsg),
+            signal: AbortSignal.timeout(2000),
         }).catch(() => { });
-        // 3. PostgreSQL persistence (if Prisma is available)
-        const prisma = getPrisma();
-        if (prisma) {
-            try {
-                await prisma.teleconsultSignal.create({
-                    data: {
-                        id: messageId,
-                        sessionId: id,
-                        senderRole,
-                        type: normalizedType,
-                        payload: JSON.stringify(payload),
-                        timestamp: BigInt(timestamp),
-                    },
-                });
-            }
-            catch (dbErr) {
-                // Relay fallback
-            }
-        }
         res.json({
             success: true,
             data: { messageId, timestamp },
@@ -440,74 +471,22 @@ export const getSignals = async (req, res, next) => {
         const id = resolveCanonicalSessionId(rawId);
         const role = req.query.role || '';
         const since = parseInt(req.query.since || '0', 10);
+        // 1. Read from DB first — authoritative across all Vercel lambda instances
+        const dbSignals = await readSignalsFromDB(id, since);
+        // 2. Merge with local in-memory cache (catches signals written by THIS instance)
         const mergedMap = new Map();
-        // 1. Gather from in-memory cache
+        dbSignals.forEach((m) => mergedMap.set(m.id, m));
         const memoryMsgs = inMemorySignalingStore.get(id) || [];
-        memoryMsgs.forEach((m) => mergedMap.set(m.id, m));
-        // 2. Gather from global Serverless Pub/Sub Relay (ntfy.sh)
-        try {
-            const relayRes = await fetch(`https://ntfy.sh/healthsure-tele-${encodeURIComponent(id)}/json?poll=1&since=5m`);
-            if (relayRes.ok) {
-                const text = await relayRes.text();
-                const lines = text.trim().split('\n');
-                for (const line of lines) {
-                    if (!line)
-                        continue;
-                    try {
-                        const event = JSON.parse(line);
-                        if (event.event === 'message' && event.message) {
-                            const msg = JSON.parse(event.message);
-                            if (msg && msg.id && (msg.sessionId === id || msg.sessionId === rawId)) {
-                                mergedMap.set(msg.id, msg);
-                                if (!memoryMsgs.some((m) => m.id === msg.id)) {
-                                    memoryMsgs.push(msg);
-                                }
-                            }
-                        }
-                    }
-                    catch { }
-                }
-                inMemorySignalingStore.set(id, memoryMsgs);
-            }
-        }
-        catch (relayErr) {
-            // Memory fallback
-        }
-        // 3. Gather from PostgreSQL if Prisma is available
-        const prisma = getPrisma();
-        if (prisma) {
-            try {
-                const rows = await prisma.teleconsultSignal.findMany({
-                    where: {
-                        sessionId: id,
-                        timestamp: { gt: BigInt(since) },
-                    },
-                    orderBy: { timestamp: 'asc' },
-                });
-                rows.forEach((r) => {
-                    if (!mergedMap.has(r.id)) {
-                        mergedMap.set(r.id, {
-                            id: r.id,
-                            sessionId: r.sessionId,
-                            senderRole: r.senderRole,
-                            type: r.type,
-                            payload: JSON.parse(r.payload),
-                            timestamp: Number(r.timestamp),
-                        });
-                    }
-                });
-            }
-            catch (dbErr) {
-                // Continue with merged map
-            }
-        }
-        // Filter by role and timestamp
-        const allSignals = Array.from(mergedMap.values());
-        const pending = allSignals
+        memoryMsgs
+            .filter((m) => m.timestamp > since)
+            .forEach((m) => { if (!mergedMap.has(m.id))
+            mergedMap.set(m.id, m); });
+        // Filter: exclude sender's own role messages, only include messages newer than `since`
+        const pending = Array.from(mergedMap.values())
             .filter((m) => {
-            const matchRole = !role || m.senderRole !== role;
-            const matchTime = m.timestamp > since;
-            return matchRole && matchTime;
+            const notOwnMessage = !role || m.senderRole !== role;
+            const isNewEnough = m.timestamp > since;
+            return notOwnMessage && isNewEnough;
         })
             .sort((a, b) => a.timestamp - b.timestamp);
         res.json({

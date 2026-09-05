@@ -268,11 +268,12 @@ export const DoctorTeleconsultPage: React.FC = () => {
 
               {/* Main Remote Patient Video Stream */}
               <div className="flex-1 flex items-center justify-center relative overflow-hidden">
+                {/* Remote Patient Video Stream — ALWAYS in DOM, never hidden/display:none */}
                 <video
                   ref={remoteVideoRef}
                   autoPlay
                   playsInline
-                  className={`w-full h-full object-cover relative z-10 transition-opacity duration-300 ${isRemoteVideoActive && !isLowBandwidthMode ? 'opacity-100 block' : 'opacity-0 hidden'}`}
+                  className={`w-full h-full object-cover absolute inset-0 z-10 transition-opacity duration-300 ${isRemoteVideoActive && !isLowBandwidthMode ? 'opacity-100' : 'opacity-0'}`}
                 />
 
                 {(!isRemoteVideoActive || isLowBandwidthMode) && (

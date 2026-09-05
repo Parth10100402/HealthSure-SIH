@@ -1,9 +1,8 @@
-import { publishCloudAppointment, syncCloudAppointments } from '../db/cloudSync.js';
+import { publishCloudAppointment } from '../db/cloudSync.js';
 import { dataStore } from '../db/store.js';
 import { createAppointmentSchema } from '../schemas/validationSchemas.js';
 import { createUtcInstantFromIst, formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime.js';
 export const getAppointments = async (req, res, next) => {
-    await syncCloudAppointments(dataStore);
     try {
         const { status, mode, doctorId, patientId } = req.query;
         let list = [...dataStore.appointments];
@@ -95,9 +94,9 @@ export const getAppointmentById = async (req, res, next) => {
 export const createAppointment = async (req, res, next) => {
     try {
         const body = createAppointmentSchema.parse(req.body);
-        // Idempotency check
+        // Idempotency check — ignore CANCELLED appointments (they can be re-booked)
         if (body.idempotencyKey) {
-            const existing = dataStore.appointments.find((a) => a.idempotencyKey === body.idempotencyKey);
+            const existing = dataStore.appointments.find((a) => a.idempotencyKey === body.idempotencyKey && a.status !== 'CANCELLED');
             if (existing) {
                 res.status(200).json({
                     success: true,

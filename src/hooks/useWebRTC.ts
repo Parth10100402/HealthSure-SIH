@@ -142,6 +142,7 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
   // Pending ICE candidates queue (buffered until remoteDescription is set)
   const pendingCandidatesQueueRef = useRef<RTCIceCandidateInit[]>([]);
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
+  const lastSignalTimestampRef = useRef<number>(0);
 
   const log = useCallback(
     (action: string, detail: any = '') => {
@@ -283,6 +284,8 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
     setIsRemoteAudioActive(false);
     setIsRemoteAttached(false);
     pendingCandidatesQueueRef.current = [];
+    processedMessageIdsRef.current = new Set();
+    lastSignalTimestampRef.current = 0;
   }, [log]);
 
   // Explicit End Call (invoked ONLY on user click)
@@ -547,7 +550,8 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
       }
 
       try {
-        const res = await fetch(`${API_BASE_URL}/teleconsultations/${canonicalSessionId}/signal?role=${role}`);
+        const since = lastSignalTimestampRef.current;
+        const res = await fetch(`${API_BASE_URL}/teleconsultations/${canonicalSessionId}/signal?role=${role}&since=${since}`);
         if (res.ok) {
           const json = await res.json();
           if (json.success && Array.isArray(json.data) && json.data.length > 0) {
@@ -634,6 +638,10 @@ export function useWebRTC({ sessionId, role, autoStart = false }: UseWebRTCOptio
                   log('IGNORED_STALE_OR_IMPLICIT_LEAVE_SIGNAL', msg.payload);
                 }
               }
+            }
+            // Advance the since cursor to avoid re-fetching processed signals
+            if (json.timestamp && json.timestamp > lastSignalTimestampRef.current) {
+              lastSignalTimestampRef.current = json.timestamp;
             }
           }
         }

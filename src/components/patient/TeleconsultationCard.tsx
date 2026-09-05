@@ -230,12 +230,12 @@ export const TeleconsultRoomMock: React.FC<{
         <div className="flex-1 p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-[#051818] min-h-0">
           {/* Main Remote Feed (Doctor) */}
           <div className="md:col-span-2 relative rounded-2xl bg-[#092B2B] border border-[#087F6D]/30 overflow-hidden flex items-center justify-center">
-            {/* Live remote video element */}
+          {/* Live remote video element — ALWAYS in DOM, never hidden/display:none */}
             <video
               ref={remoteVideoRef}
               autoPlay
               playsInline
-              className={`w-full h-full object-cover relative z-10 transition-opacity duration-300 ${isRemoteVideoActive && !isLowBandwidthMode ? 'opacity-100 block' : 'opacity-0 hidden'}`}
+              className={`w-full h-full object-cover absolute inset-0 z-10 transition-opacity duration-300 ${isRemoteVideoActive && !isLowBandwidthMode ? 'opacity-100' : 'opacity-0'}`}
             />
 
             {/* Doctor placeholder when remote video is not yet transmitting or in low bandwidth mode */}

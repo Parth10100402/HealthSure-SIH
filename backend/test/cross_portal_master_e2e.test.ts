@@ -110,21 +110,22 @@ async function runMasterE2ETests() {
         startTime: '11:30 AM',
         mode: 'TELECONSULTATION',
         reasonForVisit: 'Cross-Portal Cardiac Consultation',
-        idempotencyKey: 'idem-master-test-01',
+        idempotencyKey: `idem-master-test-${Date.now()}`,
       }),
     });
     const bookJson = await bookRes.json();
     if (!bookRes.ok || !bookJson.success) throw new Error('Patient booking failed');
     bookedAptId = bookJson.data.id;
+    const bookedAptAppointmentId = bookJson.data.appointmentId;
 
     // Verify Patient sees it
     const patListRes = await fetch(`${BASE_URL}/appointments`, {
       headers: { Authorization: `Bearer ${patientToken}` },
     });
     const patList = await patListRes.json();
-    const patApt = patList.data.find((a: any) => a.id === bookedAptId);
+    const patApt = patList.data.find((a: any) => a.id === bookedAptId || a.appointmentId === bookedAptAppointmentId);
     if (!patApt || patApt.status.toLowerCase() !== 'confirmed') {
-      throw new Error('Appointment not found in patient appointments list');
+      throw new Error(`Appointment not found in patient appointments list (looking for id=${bookedAptId}, appointmentId=${bookedAptAppointmentId}, found ${patList.data.length} appointments, first 3 ids: ${patList.data.slice(0,3).map((a: any) => a.id).join(',')})`);
     }
 
     // Verify Doctor sees it

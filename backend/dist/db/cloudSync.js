@@ -1,7 +1,12 @@
 // HealthSure — Multi-Tier Serverless State Synchronization
 // backend/src/db/cloudSync.ts
 const CHANNEL = 'healthsure-cloud-appointments-prod-v2';
+const isTestEnv = () => process.env.NODE_ENV === 'test' ||
+    process.env.DISABLE_CLOUD_SYNC === 'true' ||
+    process.argv.some((arg) => arg.includes('test'));
 export async function publishCloudAppointment(apt) {
+    if (isTestEnv())
+        return;
     try {
         await fetch(`https://ntfy.sh/${CHANNEL}/publish`, {
             method: 'POST',
@@ -14,6 +19,8 @@ export async function publishCloudAppointment(apt) {
     }
 }
 export async function syncCloudAppointments(store) {
+    if (isTestEnv())
+        return;
     try {
         const res = await fetch(`https://ntfy.sh/${CHANNEL}/json?poll=1&since=24h`, {
             signal: AbortSignal.timeout(2000),
@@ -42,13 +49,9 @@ export async function syncCloudAppointments(store) {
                         }
                         else {
                             store.appointments.unshift(apt);
-                            // Update outreach slot if applicable
-                            if (apt.outreachId && apt.status === 'CONFIRMED') {
-                                const outreach = store.outreachSchedules.find((o) => o.id === apt.outreachId || o.outreachId === apt.outreachId);
-                                if (outreach && outreach.availableSlots > 0) {
-                                    outreach.availableSlots -= 1;
-                                }
-                            }
+                            // NOTE: Outreach slot counts are NOT modified here.
+                            // Slots are authoritative-local and managed only by direct API calls (/book, /cancel).
+                            // Decrementing here from replayed ntfy.sh history would corrupt slot counts.
                         }
                     }
                 }

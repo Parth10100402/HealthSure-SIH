@@ -1,4 +1,4 @@
-import { publishCloudAppointment, syncCloudAppointments } from '../db/cloudSync.js';
+import { publishCloudAppointment } from '../db/cloudSync.js';
 // HealthSure — Appointments Controller with Canonical DateTime & Atomic Transactions
 // backend/src/controllers/appointmentController.ts
 
@@ -9,7 +9,6 @@ import type { AppointmentEntity } from '../types/index.js';
 import { createUtcInstantFromIst, formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime.js';
 
 export const getAppointments = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  await syncCloudAppointments(dataStore);
   try {
     const { status, mode, doctorId, patientId } = req.query;
 
@@ -106,9 +105,11 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
   try {
     const body = createAppointmentSchema.parse(req.body);
 
-    // Idempotency check
+    // Idempotency check — ignore CANCELLED appointments (they can be re-booked)
     if (body.idempotencyKey) {
-      const existing = dataStore.appointments.find((a) => a.idempotencyKey === body.idempotencyKey);
+      const existing = dataStore.appointments.find(
+        (a) => a.idempotencyKey === body.idempotencyKey && a.status !== 'CANCELLED'
+      );
       if (existing) {
         res.status(200).json({
           success: true,
