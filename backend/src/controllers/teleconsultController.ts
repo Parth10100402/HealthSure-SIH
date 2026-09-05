@@ -277,7 +277,16 @@ export const joinTeleconsult = async (req: Request, res: Response, next: NextFun
     const now = Date.now();
 
     let presence = sessionPresenceStore.get(id);
-    if (!presence) {
+    if (!presence || presence.status === 'ENDED' || (role === 'patient' && !presence.doctorJoined)) {
+      // Clear stale signals from earlier completed calls
+      inMemorySignalingStore.delete(id);
+      const prisma = getPrisma();
+      if (prisma) {
+        try {
+          await prisma.teleconsultSignal.deleteMany({ where: { sessionId: id } });
+        } catch {}
+      }
+
       presence = {
         sessionId: id,
         patientJoined: false,

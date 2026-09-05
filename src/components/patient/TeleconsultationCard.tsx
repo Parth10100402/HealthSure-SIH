@@ -372,16 +372,18 @@ export const TeleconsultRoomMock: React.FC<{
                 <span>•</span>
                 <span className="text-emerald-400 font-bold">P2P: {connectionState}</span>
                 <span>•</span>
-                <span>ICE: {iceConnectionState} (H:{candidateStats.host} S:{candidateStats.srflx} R:{candidateStats.relay})</span>
+                <span>ICE: {iceConnectionState} (Host:{candidateStats.host} Srflx:{candidateStats.srflx} Relay:{candidateStats.relay})</span>
                 <span>•</span>
-                <span>SIGNAL: {signalingState}</span>
+                <span>Sig: {signalingState}</span>
+                <span>•</span>
+                <span>Timer: {formatTimer(callDuration)}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span>LOCAL: {localTracks.audio ? '🎤' : '❌'}{localTracks.video ? '📹' : '❌'}</span>
+                <span>Local: Audio {localTracks.audio ? 'ON' : 'OFF'} • Video {localTracks.video ? 'ON' : 'OFF'}</span>
                 <span>•</span>
-                <span>REMOTE: {remoteTracks.audio ? '🔊' : '❌'}{remoteTracks.video ? '📺' : '❌'}</span>
+                <span>Remote: Audio {remoteTracks.audio ? 'ON' : 'OFF'} • Video {remoteTracks.video ? 'ON' : 'OFF'}</span>
                 <span>•</span>
-                <span>ATTACHED: {isRemoteAttached ? '✓' : '…'}</span>
+                <span>Attached: {isRemoteAttached ? 'YES' : 'PENDING'}</span>
               </div>
             </div>
           </div>
