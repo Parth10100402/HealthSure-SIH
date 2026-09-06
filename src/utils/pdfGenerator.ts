@@ -281,7 +281,7 @@ export function downloadAppointmentSlipPDF(
     '• Please report to the facility 15 minutes prior to your scheduled slot.',
     '• Carry this printed or digital slip along with a valid Government Photo ID / ABHA Card.',
     '• Bring all previous medical records, diagnostic test reports, and current medication strips.',
-    '• In case of emergency or unexpected delays, contact the HealthSure Helpline at 01141185137.',
+    '• In case of emergency or unexpected delays, contact the HealthSure Helpline at 07314624692.',
   ];
   guidelines.forEach((g) => {
     doc.text(g, 14, y);

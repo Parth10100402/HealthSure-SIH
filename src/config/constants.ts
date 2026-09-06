@@ -3,9 +3,9 @@
 
 export const HEALTHSURE_IVR_CONFIG = {
   // Real HealthSure Exotel / Toll-Free IVR Helpline Number
-  PHONE_NUMBER: '01141185137',
-  RAW_PHONE_NUMBER: '01141185137',
-  TEL_HREF: 'tel:01141185137',
+  PHONE_NUMBER: '07314624692',
+  RAW_PHONE_NUMBER: '07314624692',
+  TEL_HREF: 'tel:07314624692',
   TITLE: 'Call HealthSure',
   DESCRIPTION: 'Need healthcare assistance? Call our HealthSure IVR — works even without internet.',
   BADGE_24X7: '24×7 automated healthcare assistance',

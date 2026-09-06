@@ -356,11 +356,11 @@ export const VoiceIVRModal: React.FC<VoiceIVRModalProps> = ({ isOpen, onClose })
           {/* Call Controls Footer */}
           <div className="pt-2 border-t border-[#DDE8E4] dark:border-[#1A3A3A] flex items-center justify-between">
             <a
-              href="tel:18002094477"
+              href={HEALTHSURE_IVR_TEL}
               className="text-xs font-bold text-[#087F6D] hover:underline flex items-center gap-1"
             >
               <PhoneCall className="w-3.5 h-3.5" />
-              <span>Dial Helpline: 1800-209-4477</span>
+              <span>Dial Helpline: {HEALTHSURE_IVR_NUMBER}</span>
             </a>
 
             <button
@@ -388,7 +388,7 @@ export const VoiceAssistantCard: React.FC<{ onOpenCall: () => void }> = ({ onOpe
             HealthSure Voice • Low-Connectivity Phone Assistance
           </div>
           <h3 className="text-base font-bold text-[#17324D] dark:text-[#E2EEF4]">
-            No internet? Call HealthSure Toll-Free (1800-209-4477)
+            No internet? Call HealthSure ({HEALTHSURE_IVR_NUMBER})
           </h3>
           <p className="text-xs text-[#64748B] dark:text-[#7B9EA8] max-w-md leading-relaxed">
             Check appointment tokens, referral status, and specialist outreach dates via interactive voice calls in Hindi, Marathi, and English.
@@ -399,11 +399,11 @@ export const VoiceAssistantCard: React.FC<{ onOpenCall: () => void }> = ({ onOpe
       <div className="flex flex-wrap items-center gap-3 pt-1">
         {/* Real Native Phone Dialer Link on Mobile / Device */}
         <a
-          href="tel:18002094477"
+          href={HEALTHSURE_IVR_TEL}
           className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs sm:text-sm font-bold px-4 py-2.5 transition-all shadow-xs"
         >
           <PhoneCall className="w-4 h-4" />
-          <span>Call 1800-209-4477</span>
+          <span>Call {HEALTHSURE_IVR_NUMBER}</span>
         </a>
 
         {/* Interactive IVR Simulator Button */}

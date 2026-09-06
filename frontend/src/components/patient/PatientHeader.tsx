@@ -18,6 +18,7 @@ import { LanguageSelector } from '../auth/LanguageSelector';
 import { ThemeToggle } from '../auth/ThemeToggle';
 import { NotificationPanel } from './NotificationPanel';
 import { mockPatientProfile } from '../../data/patientMockData';
+import { HEALTHSURE_IVR_NUMBER } from '../../config/constants';
 
 interface PatientHeaderProps {
   onOpenMobileMenu: () => void;
@@ -78,7 +79,7 @@ export const PatientHeader: React.FC<PatientHeaderProps> = ({
             aria-label="Call HealthSure Voice IVR"
           >
             <PhoneCall className="w-3.5 h-3.5" />
-            <span>1800-209-4477</span>
+            <span>{HEALTHSURE_IVR_NUMBER}</span>
           </button>
 
           {/* Notifications */}
