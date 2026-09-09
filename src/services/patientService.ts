@@ -28,7 +28,7 @@ import {
 import { HEALTHSURE_IVR_NUMBER } from '../config/constants';
 import { getStoredToken } from './authService';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || '/api';
 
 const getAuthHeaders = () => {
   const token = getStoredToken();
@@ -84,6 +84,32 @@ export const patientService = {
     return { ...mockPatientProfile };
   },
 
+  async getDoctors(speciality?: string): Promise<Array<{ id: string; name: string; speciality: string; hospitalName: string; designation?: string }>> {
+    try {
+      const url = speciality ? `${API_BASE_URL}/doctors?speciality=${encodeURIComponent(speciality)}` : `${API_BASE_URL}/doctors`;
+      const res = await fetch(url, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data)) {
+          return json.data;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+    // Fallback static list based on mock outreach & specialists
+    return [
+      { id: 'doc-001', name: 'Dr. Ananya Mehta', speciality: 'Cardiology', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Consultant Cardiologist' },
+      { id: 'doc-002', name: 'Dr. Rahul Verma', speciality: 'General Medicine', hospitalName: 'District Hospital Pune', designation: 'Consultant Physician' },
+      { id: 'doc-003', name: 'Dr. Priya Nair', speciality: 'Gynecology', hospitalName: 'Sub-District Hospital Sawantwadi', designation: 'Maternal Health Specialist' },
+      { id: 'doc-004', name: 'Dr. Arjun Kapoor', speciality: 'Pediatrics', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Pediatrician' },
+      { id: 'doc-005', name: 'Dr. Neha Sharma', speciality: 'Dermatology', hospitalName: 'District Hospital Ratnagiri', designation: 'Consultant Dermatologist' },
+      { id: 'doc-006', name: 'Dr. Vivek Rao', speciality: 'Orthopedics', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Orthopedic Surgeon' },
+      { id: 'doc-007', name: 'Dr. Kavita Joshi', speciality: 'ENT', hospitalName: 'Sub-District Hospital Sawantwadi', designation: 'Consultant ENT Specialist' },
+      { id: 'doc-008', name: 'Dr. Sameer Khan', speciality: 'Neurology', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Consultant Neurologist' },
+    ].filter((d) => !speciality || d.speciality.toLowerCase().includes(speciality.toLowerCase()));
+  },
+
   async getAppointments(): Promise<Appointment[]> {
     try {
       const res = await fetch(`${API_BASE_URL}/appointments`, { headers: getAuthHeaders() });
@@ -128,12 +154,24 @@ export const patientService = {
   async bookAppointment(newApt: Omit<Appointment, 'id' | 'tokenNumber' | 'status'>): Promise<Appointment> {
     try {
       const scheduledAt = createUtcInstantFromIst(newApt.date, newApt.time);
+      const doctorId = newApt.doctorId || (
+        newApt.doctorName.toLowerCase().includes('rahul') ? 'doc-002' :
+        newApt.doctorName.toLowerCase().includes('priya') ? 'doc-003' :
+        newApt.doctorName.toLowerCase().includes('arjun') ? 'doc-004' :
+        newApt.doctorName.toLowerCase().includes('neha') ? 'doc-005' :
+        newApt.doctorName.toLowerCase().includes('vivek') ? 'doc-006' :
+        newApt.doctorName.toLowerCase().includes('kavita') ? 'doc-007' :
+        newApt.doctorName.toLowerCase().includes('sameer') ? 'doc-008' :
+        'doc-001'
+      );
+      const facilityId = newApt.facilityId || (newApt.facility.toLowerCase().includes('phc') ? 'fac-phc-01' : 'fac-dh-01');
+
       const res = await fetch(`${API_BASE_URL}/appointments`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          doctorId: 'doc-001',
-          facilityId: 'fac-phc-01',
+          doctorId,
+          facilityId,
           scheduledAt,
           date: newApt.date,
           startTime: newApt.time,

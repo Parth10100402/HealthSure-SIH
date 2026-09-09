@@ -3,6 +3,7 @@
 
 import { Router } from 'express';
 import {
+  getAllDoctors,
   getMyDoctorProfile,
   getDoctorAppointments,
   getDoctorReferrals,
@@ -13,6 +14,7 @@ import { authenticate } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
+router.get('/', authenticate, getAllDoctors);
 router.get('/me', authenticate, getMyDoctorProfile);
 router.get('/me/appointments', authenticate, getDoctorAppointments);
 router.get('/me/referrals', authenticate, getDoctorReferrals);

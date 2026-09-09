@@ -1,6 +1,29 @@
 import { syncCloudAppointments } from '../db/cloudSync.js';
 import { dataStore } from '../db/store.js';
 import { createUtcInstantFromIst, formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime.js';
+export const getAllDoctors = async (req, res, next) => {
+    try {
+        const { speciality } = req.query;
+        let list = [...dataStore.doctors];
+        if (speciality) {
+            list = list.filter((d) => d.speciality.toLowerCase().includes(speciality.toLowerCase()));
+        }
+        const enriched = list.map((doc) => {
+            const facility = dataStore.facilities.find((f) => f.id === doc.hospitalId);
+            return {
+                ...doc,
+                hospitalName: facility?.name || 'District Hospital Ratnagiri',
+            };
+        });
+        res.json({
+            success: true,
+            data: enriched,
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+};
 export const getMyDoctorProfile = async (req, res, next) => {
     try {
         const userId = req.user?.userId;

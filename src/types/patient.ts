@@ -32,6 +32,8 @@ export interface PatientProfile {
 export interface Appointment {
   scheduledAt?: string;
   id: string; // e.g., 'HS-APT-3012'
+  doctorId?: string;
+  facilityId?: string;
   doctorName: string;
   doctorQualification: string;
   speciality: string;

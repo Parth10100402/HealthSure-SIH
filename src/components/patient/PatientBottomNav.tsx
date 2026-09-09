@@ -8,15 +8,20 @@ import {
   Calendar,
   FileText,
   PhoneCall,
+  Mic,
   Menu,
 } from 'lucide-react';
 import { HEALTHSURE_IVR_TEL } from '../../config/constants';
 
 interface PatientBottomNavProps {
   onOpenMobileMenu: () => void;
+  onOpenVoiceAssistant?: () => void;
 }
 
-export const PatientBottomNav: React.FC<PatientBottomNavProps> = ({ onOpenMobileMenu }) => {
+export const PatientBottomNav: React.FC<PatientBottomNavProps> = ({
+  onOpenMobileMenu,
+  onOpenVoiceAssistant,
+}) => {
   const bottomItems = [
     {
       to: '/patient',
@@ -73,19 +78,35 @@ export const PatientBottomNav: React.FC<PatientBottomNavProps> = ({ onOpenMobile
           </NavLink>
         ))}
 
-        {/* 4. Direct 1-Tap Emergency Call Tab */}
-        <a
-          href={HEALTHSURE_IVR_TEL}
-          className="flex flex-col items-center justify-center py-1.5 px-1 rounded-2xl text-[#087F6D] dark:text-[#4FD1C5] font-bold hover:opacity-90 transition-all cursor-pointer"
-          aria-label="Call HealthSure IVR Hotline"
-        >
-          <div className="p-1.5 rounded-xl bg-emerald-500 text-white shadow-xs animate-bounce">
-            <PhoneCall className="w-5 h-5" />
-          </div>
-          <span className="text-[11px] mt-0.5 leading-none font-bold text-emerald-700 dark:text-emerald-400">
-            Call IVR
-          </span>
-        </a>
+        {/* 4. Voice Assistant AI Tab */}
+        {onOpenVoiceAssistant ? (
+          <button
+            type="button"
+            onClick={onOpenVoiceAssistant}
+            className="flex flex-col items-center justify-center py-1.5 px-1 rounded-2xl text-[#087F6D] dark:text-[#4FD1C5] font-bold hover:opacity-90 transition-all cursor-pointer"
+            aria-label="Talk to HealthSure Voice Assistant"
+          >
+            <div className="p-1.5 rounded-xl bg-gradient-to-r from-[#087F6D] to-[#073B3A] text-white shadow-xs animate-pulse">
+              <Mic className="w-5 h-5 text-[#4FD1C5]" />
+            </div>
+            <span className="text-[11px] mt-0.5 leading-none font-bold text-[#087F6D] dark:text-[#4FD1C5]">
+              Voice
+            </span>
+          </button>
+        ) : (
+          <a
+            href={HEALTHSURE_IVR_TEL}
+            className="flex flex-col items-center justify-center py-1.5 px-1 rounded-2xl text-[#087F6D] dark:text-[#4FD1C5] font-bold hover:opacity-90 transition-all cursor-pointer"
+            aria-label="Call HealthSure IVR Hotline"
+          >
+            <div className="p-1.5 rounded-xl bg-emerald-500 text-white shadow-xs animate-bounce">
+              <PhoneCall className="w-5 h-5" />
+            </div>
+            <span className="text-[11px] mt-0.5 leading-none font-bold text-emerald-700 dark:text-emerald-400">
+              Call IVR
+            </span>
+          </a>
+        )}
 
         {/* 5. More Menu Drawer button */}
         <button

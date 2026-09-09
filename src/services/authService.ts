@@ -4,7 +4,7 @@
 
 import type { UserRole } from '../components/auth/types';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+export const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || '/api';
 const TOKEN_KEY = 'healthsure_auth_token';
 const USER_KEY = 'healthsure_auth_user';
 const OTP_MOCK = '123456'; // Mock OTP for prototype

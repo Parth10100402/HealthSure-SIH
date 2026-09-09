@@ -14,6 +14,7 @@ import {
   User,
   HelpCircle,
   PhoneCall,
+  Mic,
   LogOut,
   ShieldCheck,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ import { useTranslation } from '../../lib/i18n/useTranslation';
 
 interface PatientSidebarProps {
   onOpenVoiceIVR: () => void;
+  onOpenVoiceAssistant?: () => void;
   onCloseMobileDrawer?: () => void;
 }
 
@@ -36,6 +38,7 @@ interface NavItem {
 
 export const PatientSidebar: React.FC<PatientSidebarProps> = ({
   onOpenVoiceIVR,
+  onOpenVoiceAssistant,
   onCloseMobileDrawer,
 }) => {
   const { logout } = useAuth();
@@ -172,6 +175,33 @@ export const PatientSidebar: React.FC<PatientSidebarProps> = ({
 
       {/* Bottom Voice / Logout Card */}
       <div className="p-3.5 border-t border-[#DDE8E4] dark:border-[#1A3A3A] space-y-2 bg-[#F5F9F7]/50 dark:bg-[#051818]/50">
+        {/* Voice Assistant AI button */}
+        {onOpenVoiceAssistant && (
+          <button
+            type="button"
+            onClick={() => {
+              if (onCloseMobileDrawer) onCloseMobileDrawer();
+              onOpenVoiceAssistant();
+            }}
+            className="w-full flex items-center justify-between p-2.5 rounded-xl border border-emerald-500/40 bg-gradient-to-r from-[#087F6D] to-[#073B3A] text-white shadow-xs hover:brightness-110 transition-all group focus-visible:outline-2 focus-visible:outline-[#087F6D] cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-white/20 text-[#4FD1C5] flex items-center justify-center animate-pulse">
+                <Mic className="w-3.5 h-3.5" />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-bold leading-none">Voice Assistant</div>
+                <div className="text-[10px] text-[#A7D9CE] mt-0.5">
+                  Hindi & English AI
+                </div>
+              </div>
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/20 text-white">
+              Speak
+            </span>
+          </button>
+        )}
+
         {/* Voice IVR action button */}
         <button
           type="button"
@@ -179,7 +209,7 @@ export const PatientSidebar: React.FC<PatientSidebarProps> = ({
             if (onCloseMobileDrawer) onCloseMobileDrawer();
             onOpenVoiceIVR();
           }}
-          className="w-full flex items-center justify-between p-2.5 rounded-xl border border-[#087F6D]/30 bg-[#EAF7F2] dark:bg-[#073B3A]/40 hover:bg-[#087F6D] hover:text-white text-[#073B3A] dark:text-[#D1E8E2] transition-all group focus-visible:outline-2 focus-visible:outline-[#087F6D]"
+          className="w-full flex items-center justify-between p-2.5 rounded-xl border border-[#087F6D]/30 bg-[#EAF7F2] dark:bg-[#073B3A]/40 hover:bg-[#087F6D] hover:text-white text-[#073B3A] dark:text-[#D1E8E2] transition-all group focus-visible:outline-2 focus-visible:outline-[#087F6D] cursor-pointer"
         >
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-[#087F6D] text-white flex items-center justify-center group-hover:bg-white group-hover:text-[#087F6D] transition-colors">

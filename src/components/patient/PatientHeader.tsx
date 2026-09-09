@@ -5,6 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Menu,
   PhoneCall,
+  Mic,
   ChevronDown,
   LogOut,
   User,
@@ -23,11 +24,13 @@ import { HEALTHSURE_IVR_NUMBER } from '../../config/constants';
 interface PatientHeaderProps {
   onOpenMobileMenu: () => void;
   onOpenVoiceIVR: () => void;
+  onOpenVoiceAssistant?: () => void;
 }
 
 export const PatientHeader: React.FC<PatientHeaderProps> = ({
   onOpenMobileMenu,
   onOpenVoiceIVR,
+  onOpenVoiceAssistant,
 }) => {
   const { user, logout } = useAuth();
   const t = useTranslation();
@@ -93,6 +96,19 @@ export const PatientHeader: React.FC<PatientHeaderProps> = ({
 
         {/* Right: Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Quick Voice Healthcare Assistant Trigger */}
+          {onOpenVoiceAssistant && (
+            <button
+              type="button"
+              onClick={onOpenVoiceAssistant}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 dark:bg-emerald-950/60 text-[#087F6D] dark:text-[#4FD1C5] text-xs font-bold hover:bg-[#087F6D] hover:text-white transition-all shadow-xs cursor-pointer"
+              title="Voice Healthcare Assistant"
+            >
+              <Mic className="w-3.5 h-3.5 animate-pulse text-emerald-600 dark:text-emerald-400" />
+              <span>Voice Agent</span>
+            </button>
+          )}
+
           {/* Quick IVR Helpline Trigger */}
           <button
             type="button"

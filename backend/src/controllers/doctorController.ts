@@ -6,6 +6,29 @@ import type { Request, Response, NextFunction } from 'express';
 import { dataStore } from '../db/store.js';
 import { createUtcInstantFromIst, formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime.js';
 
+export const getAllDoctors = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { speciality } = req.query;
+    let list = [...dataStore.doctors];
+    if (speciality) {
+      list = list.filter((d) => d.speciality.toLowerCase().includes((speciality as string).toLowerCase()));
+    }
+    const enriched = list.map((doc) => {
+      const facility = dataStore.facilities.find((f) => f.id === doc.hospitalId);
+      return {
+        ...doc,
+        hospitalName: facility?.name || 'District Hospital Ratnagiri',
+      };
+    });
+    res.json({
+      success: true,
+      data: enriched,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getMyDoctorProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = req.user?.userId;
