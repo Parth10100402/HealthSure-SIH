@@ -232,6 +232,44 @@ export const patientService = {
     return false;
   },
 
+  async rescheduleAppointment(id: string, newDate: string, newTime: string): Promise<Appointment | null> {
+    try {
+      const scheduledAt = createUtcInstantFromIst(newDate, newTime);
+      const res = await fetch(`${API_BASE_URL}/appointments/${id}`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          date: newDate,
+          startTime: newTime,
+          scheduledAt,
+          status: 'CONFIRMED',
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const apt = mockAppointments.find((a) => a.id === id);
+        if (apt) {
+          apt.date = newDate;
+          apt.time = newTime;
+          apt.scheduledAt = scheduledAt;
+          apt.status = 'confirmed';
+          return apt;
+        }
+        if (json.data) return json.data;
+      }
+    } catch {
+      // Fallback
+    }
+    const apt = mockAppointments.find((a) => a.id === id);
+    if (apt) {
+      apt.date = newDate;
+      apt.time = newTime;
+      apt.status = 'confirmed';
+      return apt;
+    }
+    return null;
+  },
+
   async getOutreachEvents(): Promise<SpecialistOutreach[]> {
     try {
       const res = await fetch(`${API_BASE_URL}/outreach`, { headers: getAuthHeaders() });

@@ -98,14 +98,20 @@ export class VoicePipelineService {
 
       if (response.ok && response.headers.get('content-type')?.includes('audio')) {
         const audioBlob = await response.blob();
-        await this._playAudioBlob(audioBlob, onPlaybackStart, onPlaybackEnd);
-        return;
+        if (audioBlob.size > 200) {
+          try {
+            await this._playAudioBlob(audioBlob, onPlaybackStart, onPlaybackEnd);
+            return;
+          } catch (playbackErr) {
+            console.warn('[VoicePipeline] Server audio playback failed, falling back to browser synthesis:', playbackErr);
+          }
+        }
       }
     } catch (netErr) {
       console.warn('[VoicePipeline] Server TTS network error, falling back to browser synthesis:', netErr);
     }
 
-    // 2. Fallback: Browser native SpeechSynthesis
+    // 2. Fallback: Browser native SpeechSynthesis (guarantees user always hears audio)
     this._speakBrowserFallback(cleanText, language, onPlaybackStart, onPlaybackEnd);
   }
 
@@ -142,12 +148,15 @@ export class VoicePipelineService {
     onStart?: () => void,
     onEnd?: () => void
   ): Promise<void> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.currentAudioUrl = URL.createObjectURL(blob);
       const audio = new Audio(this.currentAudioUrl);
       this.currentAudio = audio;
 
+      let started = false;
+
       audio.onplay = () => {
+        started = true;
         if (onStart) onStart();
       };
 
@@ -157,19 +166,27 @@ export class VoicePipelineService {
           this.currentAudioUrl = null;
         }
         this.currentAudio = null;
+      };
+
+      audio.onended = () => {
+        cleanup();
         if (onEnd) onEnd();
         resolve();
       };
 
-      audio.onended = cleanup;
-      audio.onerror = (e) => {
-        console.warn('[VoicePipeline] Audio playback error:', e);
+      audio.onerror = (_e) => {
         cleanup();
+        if (!started) {
+          reject(new Error('Audio element failed to load or decode audio stream.'));
+        } else {
+          if (onEnd) onEnd();
+          resolve();
+        }
       };
 
       audio.play().catch((playErr) => {
-        console.warn('[VoicePipeline] Audio play() promise rejected:', playErr);
         cleanup();
+        reject(playErr);
       });
     });
   }
@@ -187,25 +204,66 @@ export class VoicePipelineService {
 
     try {
       window.speechSynthesis.cancel();
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = language === 'hi' ? 'hi-IN' : 'en-IN';
-      utterance.rate = 0.95;
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+
+      const pickVoice = () => {
+        const voices = window.speechSynthesis.getVoices();
+        if (!voices || voices.length === 0) return;
+
+        if (language === 'hi') {
+          const hindiVoice = voices.find(
+            (v) =>
+              v.lang.toLowerCase().startsWith('hi') ||
+              v.name.toLowerCase().includes('hindi') ||
+              v.lang.toLowerCase().includes('in')
+          );
+          if (hindiVoice) utterance.voice = hindiVoice;
+        } else {
+          const engVoice = voices.find(
+            (v) =>
+              v.lang.toLowerCase() === 'en-in' ||
+              v.name.toLowerCase().includes('india') ||
+              v.lang.toLowerCase().startsWith('en')
+          );
+          if (engVoice) utterance.voice = engVoice;
+        }
+      };
+
+      pickVoice();
+
+      let hasEnded = false;
+      const finish = () => {
+        if (!hasEnded) {
+          hasEnded = true;
+          if (onEnd) onEnd();
+        }
+      };
 
       utterance.onstart = () => {
         if (onStart) onStart();
       };
 
-      utterance.onend = () => {
-        if (onEnd) onEnd();
-      };
+      utterance.onend = finish;
+      utterance.onerror = finish;
 
-      utterance.onerror = () => {
-        if (onEnd) onEnd();
-      };
+      // Safety timeout: Chrome sometimes fails to fire onend for long utterances
+      const safetyTimeoutMs = Math.max(3000, (text.length / 10) * 1000 + 4000);
+      setTimeout(() => {
+        if (!hasEnded && window.speechSynthesis.speaking) {
+          finish();
+        }
+      }, safetyTimeoutMs);
 
       window.speechSynthesis.speak(utterance);
     } catch (e) {
-      console.warn('[VoicePipeline] Browser fallback synthesis failed:', e);
+      console.warn('[VoicePipeline] Browser fallback synthesis exception:', e);
       if (onEnd) onEnd();
     }
   }

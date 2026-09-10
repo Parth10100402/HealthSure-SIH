@@ -673,13 +673,158 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                           className="p-2 rounded-xl bg-white dark:bg-[#0A2020] border border-blue-100"
                         >
                           <div className="font-bold">
-                            {r.diagnosis} • {r.date}
+                            {r.diagnosis || r.title} • {r.date}
                           </div>
                           <div className="text-[11px] text-[#64748B]">
                             {r.doctorName} ({r.speciality})
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Card 6: Confirm Reschedule */}
+                  {t.actionCard.type === 'CONFIRM_RESCHEDULE' && (
+                    <div className="rounded-2xl border-2 border-amber-500 bg-amber-50/80 dark:bg-amber-950/40 p-4 space-y-3 shadow-md">
+                      <div className="flex items-center gap-2 text-xs font-bold text-amber-800 dark:text-amber-400">
+                        <Calendar className="w-4 h-4" />
+                        <span>Confirm Appointment Reschedule</span>
+                      </div>
+                      <div className="space-y-1.5 text-xs text-[#17324D] dark:text-[#E2EEF4]">
+                        <div className="font-bold text-sm">
+                          {t.actionCard.data.doctorName}
+                        </div>
+                        <div className="text-[#64748B] dark:text-[#7B9EA8]">
+                          Old: <span className="line-through">{t.actionCard.data.oldDate} at {t.actionCard.data.oldTime}</span>
+                        </div>
+                        <div className="flex items-center gap-2 font-semibold text-emerald-700 dark:text-emerald-400">
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>New: {t.actionCard.data.newDate} at {t.actionCard.data.newTime}</span>
+                        </div>
+                      </div>
+                      <div className="pt-2 flex items-center gap-2 border-t border-amber-200 dark:border-amber-800">
+                        <button
+                          type="button"
+                          onClick={() => handleTextQuery('Haan, reschedule kar do')}
+                          className="flex-1 py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                        >
+                          <Check className="w-4 h-4" />
+                          <span>Haan / Reschedule</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleTextQuery('Nahi, cancel karo')}
+                          className="py-2 px-3 rounded-xl bg-white dark:bg-[#0A2020] border border-[#DDE8E4] text-[#64748B] text-xs font-bold cursor-pointer"
+                        >
+                          Keep Original
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Card 7: Appointment Details */}
+                  {t.actionCard.type === 'APPOINTMENT_DETAILS' && (
+                    <div className="rounded-2xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50/70 dark:bg-emerald-950/40 p-3.5 space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-[#087F6D] dark:text-[#4FD1C5] flex items-center gap-1.5">
+                          <Calendar className="w-4 h-4" />
+                          <span>Scheduled Appointment</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 font-mono text-[10px] font-bold">
+                          {t.actionCard.data.tokenNumber}
+                        </span>
+                      </div>
+                      <div className="space-y-1 text-[#17324D] dark:text-[#E2EEF4]">
+                        <div className="font-bold text-sm">{t.actionCard.data.doctorName}</div>
+                        <div className="text-[11px] text-[#64748B]">{t.actionCard.data.speciality} • {t.actionCard.data.facility}</div>
+                        <div className="flex items-center gap-2 pt-1 font-semibold text-[#087F6D]">
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>{t.actionCard.data.date} at {t.actionCard.data.time}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Card 8: Specialist Outreach List */}
+                  {t.actionCard.type === 'OUTREACH_LIST' && (
+                    <div className="rounded-2xl border border-[#DDE8E4] dark:border-[#1A3A3A] bg-white dark:bg-[#0A2020] p-3 space-y-2 text-xs">
+                      <div className="font-bold text-[#087F6D] dark:text-[#4FD1C5] flex items-center gap-1.5">
+                        <MapPin className="w-4 h-4" />
+                        <span>Upcoming Specialist Outreach Camps</span>
+                      </div>
+                      <div className="space-y-2">
+                        {t.actionCard.data.outreach?.map((camp: any) => (
+                          <div key={camp.id} className="p-2.5 rounded-xl bg-[#F5F9F7] dark:bg-[#051818] border border-emerald-100 flex items-center justify-between">
+                            <div>
+                              <div className="font-bold">{camp.doctorName} ({camp.speciality})</div>
+                              <div className="text-[11px] text-[#64748B]">{camp.date} • {camp.outreachLocation}</div>
+                              <div className="text-[10px] text-emerald-700 font-semibold">{camp.availableSlots} slots left</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleTextQuery(`Outreach camp mein slot book kar do`)}
+                              className="px-2.5 py-1 rounded-lg bg-[#087F6D] hover:bg-[#073B3A] text-white text-[11px] font-bold cursor-pointer"
+                            >
+                              Book
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Card 9: Follow-up Card */}
+                  {t.actionCard.type === 'FOLLOW_UP_CARD' && (
+                    <div className="rounded-2xl border border-indigo-200 dark:border-indigo-900 bg-indigo-50/70 dark:bg-indigo-950/40 p-3.5 space-y-2 text-xs">
+                      <div className="font-bold text-indigo-800 dark:text-indigo-300 flex items-center gap-1.5">
+                        <Clock className="w-4 h-4" />
+                        <span>Upcoming Follow-up Checkup</span>
+                      </div>
+                      <div className="text-[#17324D] dark:text-[#E2EEF4]">
+                        <div className="font-bold">{t.actionCard.data.doctorName} ({t.actionCard.data.speciality})</div>
+                        <div>Facility: {t.actionCard.data.facility}</div>
+                        <div className="font-semibold text-indigo-700 pt-1">Due Date: {t.actionCard.data.dueDate} ({t.actionCard.data.mode})</div>
+                        {t.actionCard.data.instructions && (
+                          <div className="text-[11px] text-[#64748B] italic pt-1">{t.actionCard.data.instructions}</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Card 10: Teleconsultation Ready */}
+                  {t.actionCard.type === 'TELECONSULT_READY' && (
+                    <div className="rounded-2xl border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 p-4 space-y-2.5 text-xs">
+                      <div className="font-bold text-emerald-800 dark:text-emerald-300 text-sm">
+                        Teleconsultation Session Ready
+                      </div>
+                      <div className="text-[#17324D] dark:text-[#E2EEF4]">
+                        {t.actionCard.data.doctorName} ({t.actionCard.data.speciality})
+                        <br />
+                        Date &amp; Time: {t.actionCard.data.date} at {t.actionCard.data.time}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleClose();
+                          navigate('/patient/teleconsultation');
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-[#087F6D] hover:bg-[#073B3A] text-white font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        Join Video Consultation Room
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Card 11: Profile Card */}
+                  {t.actionCard.type === 'PROFILE_CARD' && (
+                    <div className="rounded-2xl border border-teal-200 dark:border-teal-900 bg-teal-50 dark:bg-teal-950/40 p-3.5 space-y-2 text-xs">
+                      <div className="font-bold text-teal-900 dark:text-teal-200">Patient Profile Details</div>
+                      <div className="space-y-1 text-[#17324D] dark:text-[#E2EEF4]">
+                        <div>Name: <strong>{t.actionCard.data.fullName}</strong></div>
+                        <div>ABHA ID: <span className="font-mono text-[11px]">{t.actionCard.data.abhaId}</span></div>
+                        <div>Location: {t.actionCard.data.village}, {t.actionCard.data.district}</div>
+                        <div>Phone: {t.actionCard.data.phone}</div>
+                      </div>
                     </div>
                   )}
                 </div>

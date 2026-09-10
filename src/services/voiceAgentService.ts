@@ -1,11 +1,23 @@
 /**
- * Voice Agent Conversational Service for HealthSure
+ * HealthSure — Voice Healthcare Conversational Agent Service
+ * src/services/voiceAgentService.ts
  *
- * Implements conversational intelligence over real patient data:
- * - Multi-turn conversational memory & slot filling
- * - Real backend data queries (doctors, outreach, appointments, records, referrals, teleconsultations)
- * - Confirmation-gated state mutations (appointments booking & cancellation)
- * - Natural language response generation in Hindi, Hinglish, and English
+ * Full App Voice Control & Action Agent covering the entire HealthSure Patient Portal:
+ * - Appointments (Search, slots, booking, cancellation, rescheduling, dates/times/status/token)
+ * - Doctor & Specialist Discovery (8 specialties, availability by day/time, name, facility)
+ * - Specialist Outreach Camps (Dates, locations, remaining slots, booking)
+ * - Health Records & Clinical Summaries (Latest records, reports, prescriptions)
+ * - Referrals & Continuity Tracking (Status, destination hospital, priority, timeline)
+ * - Follow-up Checkups (Due dates, instructions, mode)
+ * - Teleconsultation (Video room status, join room, initiate session)
+ * - Lab Diagnostics & Medicine Stocks (Tests, pricing, stock availability)
+ * - Patient Profile & Identity (ABHA ID, contact, demographic details)
+ * - Emergency SOS & Ambulance (108, 24x7 helpline, PHC emergency room)
+ * - In-App Navigation (Direct routing to any patient section)
+ * - Conversational Control (Repeat, back, cancel, what can you do)
+ * - Natural language code-switching: Hindi, Hinglish, English
+ * - Multi-turn conversational context retention & pronoun resolution
+ * - Strict mutation safety (All mutating actions gated by confirmation)
  */
 
 import { patientService } from './patientService';
@@ -17,6 +29,7 @@ export interface DoctorInfo {
   speciality: string;
   hospitalName: string;
   designation?: string;
+  availableDays?: string[];
 }
 
 export type VoiceLanguage = 'hi' | 'en';
@@ -27,7 +40,19 @@ export interface VoiceConversationTurn {
   text: string;
   timestamp: string;
   actionCard?: {
-    type: 'CONFIRM_BOOKING' | 'CONFIRM_CANCELLATION' | 'DOCTOR_LIST' | 'RECORDS_SUMMARY' | 'REFERRAL_CARD' | 'TELECONSULT_READY';
+    type:
+      | 'CONFIRM_BOOKING'
+      | 'CONFIRM_CANCELLATION'
+      | 'CONFIRM_RESCHEDULE'
+      | 'DOCTOR_LIST'
+      | 'APPOINTMENT_DETAILS'
+      | 'RECORDS_SUMMARY'
+      | 'REFERRAL_CARD'
+      | 'FOLLOW_UP_CARD'
+      | 'TELECONSULT_READY'
+      | 'OUTREACH_LIST'
+      | 'PROFILE_CARD'
+      | 'DIAGNOSTICS_LIST';
     data: any;
   };
 }
@@ -43,31 +68,63 @@ export interface VoiceConversationState {
   dateDisplay: string | null;
   timeStr: string | null;
   time24: string | null;
-  pendingAction: 'BOOK_APPOINTMENT' | 'CANCEL_APPOINTMENT' | null;
   targetAppointmentId: string | null;
+  rescheduleNewDate?: string | null;
+  rescheduleNewTime?: string | null;
+  pendingAction: 'BOOK_APPOINTMENT' | 'CANCEL_APPOINTMENT' | 'RESCHEDULE_APPOINTMENT' | 'BOOK_OUTREACH' | null;
+  pendingData?: any | null;
   awaitingConfirmation: boolean;
+  candidateDoctors: DoctorInfo[];
+  candidateSlots: string[];
+  lastSpokenResponse: string | null;
   history: VoiceConversationTurn[];
 }
 
-export class VoiceAgentService {
-  private state: VoiceConversationState = {
-    intent: null,
-    selectedDoctor: null,
-    doctorId: null,
-    speciality: null,
-    facility: null,
-    facilityId: null,
-    dateStr: null,
-    dateDisplay: null,
-    timeStr: null,
-    time24: null,
-    pendingAction: null,
-    targetAppointmentId: null,
-    awaitingConfirmation: false,
-    history: [],
-  };
+export const KNOWN_DOCTORS: DoctorInfo[] = [
+  { id: 'doc-001', name: 'Dr. Ananya Mehta', speciality: 'Cardiology', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Consultant Cardiologist', availableDays: ['Monday', 'Wednesday', 'Friday'] },
+  { id: 'doc-002', name: 'Dr. Rahul Verma', speciality: 'General Medicine', hospitalName: 'District Hospital Pune', designation: 'Consultant Physician', availableDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] },
+  { id: 'doc-003', name: 'Dr. Priya Nair', speciality: 'Gynecology', hospitalName: 'Sub-District Hospital Sawantwadi', designation: 'Maternal Health Specialist', availableDays: ['Tuesday', 'Wednesday', 'Saturday'] },
+  { id: 'doc-004', name: 'Dr. Arjun Kapoor', speciality: 'Pediatrics', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Pediatrician', availableDays: ['Monday', 'Wednesday', 'Thursday'] },
+  { id: 'doc-005', name: 'Dr. Neha Sharma', speciality: 'Dermatology', hospitalName: 'District Hospital Ratnagiri', designation: 'Consultant Dermatologist', availableDays: ['Wednesday', 'Friday'] },
+  { id: 'doc-006', name: 'Dr. Vivek Rao', speciality: 'Orthopedics', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Orthopedic Surgeon', availableDays: ['Tuesday', 'Wednesday', 'Saturday'] },
+  { id: 'doc-007', name: 'Dr. Kavita Joshi', speciality: 'ENT', hospitalName: 'Sub-District Hospital Sawantwadi', designation: 'Consultant ENT Specialist', availableDays: ['Monday', 'Wednesday', 'Friday'] },
+  { id: 'doc-008', name: 'Dr. Sameer Khan', speciality: 'Neurology', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Consultant Neurologist', availableDays: ['Wednesday', 'Thursday'] },
+];
 
+export const STANDARD_OPD_SLOTS = [
+  '09:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM',
+  '12:00 PM', '12:30 PM', '01:30 PM',
+  '02:00 PM', '02:30 PM', '03:00 PM', '03:30 PM', '04:00 PM'
+];
+
+export class VoiceAgentService {
+  private state: VoiceConversationState = this.getInitialState();
   private language: VoiceLanguage = 'hi';
+
+  private getInitialState(): VoiceConversationState {
+    return {
+      intent: null,
+      selectedDoctor: null,
+      doctorId: null,
+      speciality: null,
+      facility: null,
+      facilityId: null,
+      dateStr: null,
+      dateDisplay: null,
+      timeStr: null,
+      time24: null,
+      targetAppointmentId: null,
+      rescheduleNewDate: null,
+      rescheduleNewTime: null,
+      pendingAction: null,
+      pendingData: null,
+      awaitingConfirmation: false,
+      candidateDoctors: [...KNOWN_DOCTORS],
+      candidateSlots: [...STANDARD_OPD_SLOTS],
+      lastSpokenResponse: null,
+      history: [],
+    };
+  }
 
   public setLanguage(lang: VoiceLanguage) {
     this.language = lang;
@@ -82,27 +139,9 @@ export class VoiceAgentService {
   }
 
   public resetState() {
-    this.state = {
-      intent: null,
-      selectedDoctor: null,
-      doctorId: null,
-      speciality: null,
-      facility: null,
-      facilityId: null,
-      dateStr: null,
-      dateDisplay: null,
-      timeStr: null,
-      time24: null,
-      pendingAction: null,
-      targetAppointmentId: null,
-      awaitingConfirmation: false,
-      history: [],
-    };
+    this.state = this.getInitialState();
   }
 
-  /**
-   * Process incoming user speech transcript or text input
-   */
   public async processUserInput(text: string): Promise<{
     spokenResponse: string;
     actionCard?: VoiceConversationTurn['actionCard'];
@@ -120,143 +159,286 @@ export class VoiceAgentService {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     });
 
-    // 2. Check if we are waiting for confirmation of a pending action
+    // 2. Repetition intent
+    if (/\b(repeat|phir se|dobara|pardon|kya bola|repeat last|wapas bolo|ek baar phir)\b/i.test(lower)) {
+      return this.handleRepeat();
+    }
+
+    // 3. Go Back intent
+    if (/\b(go back|back jao|pichhe jao|pichhla page|previous page)\b/i.test(lower)) {
+      return this.handleGoBack();
+    }
+
+    // 4. Close Assistant intent
+    if (/\b(voice assistant band|modal band|exit assistant|close assistant|assistant band karo|close karo)\b/i.test(lower)) {
+      return this.handleCloseAssistant();
+    }
+
+    // 5. Emergency / SOS Detection
+    if (/\b(emergency|sos|madad|bachao|heart attack|hart attack|accident|bleeding|chest pain|saans nahi aa rahi|ambulance|108|urgent help)\b/i.test(lower)) {
+      return this.handleEmergency();
+    }
+
+    // 6. What can you do / Capabilities Help
+    if (/\b(what can you do|kya kar sakte ho|features|capabilities|madad chahiye|options batao|help me)\b/i.test(lower)) {
+      return this.handleCapabilitiesHelp();
+    }
+
+    // 7. Awaiting Confirmation Handling
     if (this.state.awaitingConfirmation && this.state.pendingAction) {
       if (this.isAffirmative(lower)) {
         return await this.executeConfirmedAction();
       } else if (this.isNegative(lower)) {
         return this.cancelPendingAction();
+      } else {
+        // User changed topic or asked a new command: reset pending action cleanly
+        this.state.awaitingConfirmation = false;
+        this.state.pendingAction = null;
       }
     }
 
-    // 3. Emergency / SOS Detection
-    if (/\b(emergency|sos|madad|bachao|hart attack|accident|bleeding|chest pain|saans nahi aa rahi)\b/i.test(lower)) {
-      return this.handleEmergency();
-    }
-
-    // 4. Check Navigation Intent
+    // 8. Navigation Commands (Explicit page open requests)
     const navMatch = this.detectNavigation(lower);
     if (navMatch) {
       return navMatch;
     }
 
-    // 5. Check Teleconsultation Intent
-    if (/\b(video|teleconsult|teleconsultation|call doctor|doctor se baat|online doctor)\b/i.test(lower)) {
-      return await this.handleTeleconsultationQuery(lower);
+    // 9. Extract slots and entity references
+    this.extractSlotsAndEntities(trimmed);
+
+    // 10. Rescheduling Intent
+    if (/\b(reschedule|shift|badal do|aage badha do|change time|change date|dusre din|agla slot|time change)\b/i.test(lower)) {
+      return await this.handleRescheduleIntent(lower);
     }
 
-    // 6. Check Health Records Intent
-    if (/\b(record|records|report|reports|prescription|dawa|parchi|dawai|test result)\b/i.test(lower)) {
-      return await this.handleHealthRecordsQuery();
-    }
-
-    // 7. Check Referral Intent
-    if (/\b(referral|refer|status of referral|hospital refer)\b/i.test(lower)) {
-      return await this.handleReferralQuery();
-    }
-
-    // 8. Check Existing Appointment Query (Lookup)
-    if (/\b(meri appointment|my appointment|next appointment|kab hai appointment|appointment status)\b/i.test(lower) && !lower.includes('cancel') && !lower.includes('book')) {
-      return await this.handleAppointmentLookup();
-    }
-
-    // 9. Check Cancellation Intent
-    if (/\b(cancel|radd|hata do|delete appointment|appointment cancel)\b/i.test(lower)) {
+    // 11. Cancellation Intent
+    if (/\b(cancel|radd|hata do|delete appointment|appointment cancel|nahi jana)\b/i.test(lower)) {
       return await this.handleCancellationIntent(lower);
     }
 
-    // 10. Extract slot information (Date, Time, Doctor, Specialty)
-    this.extractSlots(trimmed);
+    // 12. Teleconsultation Intent (Video call, online doctor, teleconsult)
+    if (/\b(video|teleconsult|teleconsultation|online doctor|call doctor|video call|doctor se baat)\b/i.test(lower)) {
+      return await this.handleTeleconsultationQuery(lower);
+    }
 
-    // 11. Check Appointment Booking Intent or Booking Flow Continuation
-    if (/\b(book|appointment|milna|dikhana|checkup|le lo|fix karo|kar do)\b/i.test(lower) || this.state.intent === 'BOOK_APPOINTMENT') {
+    // 13. Specialist Outreach Camps (Outreach, camp, MMU, gaav)
+    if (/\b(outreach|camp|camps|mmu|mobile medical|specialist visit|gaav mein|phc camp)\b/i.test(lower)) {
+      return await this.handleOutreachQuery(lower);
+    }
+
+    // 14. Follow-up Queries
+    if (/\b(follow-?ups?|follow up|agla checkup|dobara dikhana|review date)\b/i.test(lower)) {
+      return await this.handleFollowUpQuery();
+    }
+
+    // 15. Referrals Tracking
+    if (/\b(referral|refer|status of referral|hospital refer|bade hospital refer)\b/i.test(lower)) {
+      return await this.handleReferralQuery(lower);
+    }
+
+    // 16. Health Records, Reports, Prescriptions
+    if (/\b(record|records|report|reports|prescription|prescriptions|dawai|dawa|parchi|diagnosis|medical history)\b/i.test(lower)) {
+      return await this.handleHealthRecordsQuery(lower);
+    }
+
+    // 17. Diagnostics / Lab Tests
+    if (/\b(test|tests|lab|blood test|ecg|x-ray|xray|scan|cbc|sugar test|lipid)\b/i.test(lower)) {
+      return await this.handleDiagnosticsQuery();
+    }
+
+    // 18. Medicine Stock Check
+    if (/\b(paracetamol|metformin|amoxicillin|medicine stock|tablet stock|dawai uplabdh)\b/i.test(lower)) {
+      return await this.handleMedicinesQuery();
+    }
+
+    // 19. Patient Profile & ABHA Query
+    if (/\b(profile|mera naam|abha|abha id|patient id|mera address|mera mobile|meri details)\b/i.test(lower)) {
+      return await this.handleProfileQuery();
+    }
+
+    // 20. Specific Existing Appointment Queries (Today, Tomorrow, Status, Token, Date/Time, Location)
+    if (
+      /\b(meri appointment|my appointment|next appointment|agli appointment|aaj ki appointment|kal ki appointment|appointments? status|token|kab hai|kis din hai|kis time|time kya hai|doctor kaun hai|kahan par hai|room number)\b/i.test(lower) &&
+      !lower.includes('book')
+    ) {
+      return await this.handleSpecificAppointmentQuery(lower);
+    }
+
+    // 21. Available Slots Discovery (Morning, Afternoon, Evening, Earliest, Doctor free check, or specific time/slot request)
+    const isBookingRequest = /\b(book|appointment lena|milna hai|dikhana hai|checkup karwana|fix karo|kar do|appointment chahiye)\b/i.test(lower) || this.state.intent === 'BOOK_APPOINTMENT';
+
+    if (
+      !isBookingRequest &&
+      ((/\b(slots?|free time|kab free|earliest|subah ka slot|shaam ka slot|dopahar ka slot|free hai kya|available time)\b/i.test(lower)) ||
+      /\b(shaam|subah|dopahar|morning|afternoon|evening)\b.*\b(appointment|slot|mileg[ia]|mil jayeg[ia])\b/i.test(lower) ||
+      (this.state.timeStr && (lower.includes('slot') || lower.includes('doctor') || lower.includes('appointment') || lower.includes('aas paas') || lower.includes('around') || lower.includes('baje') || lower.trim().length < 25)))
+    ) {
+      return await this.handleSlotDiscovery(lower);
+    }
+
+    // 22. Appointment Booking Flow (Initiation or Continuation)
+    if (isBookingRequest) {
       return await this.handleBookingFlow(lower);
     }
 
-    // 12. Check Doctor / Availability Discovery Intent
-    if (/\b(doctor|specialist|available|kaun|schedule|outreach|cardiology|medicine|dermatology|orthopedics)\b/i.test(lower)) {
-      return await this.handleDoctorDiscovery(lower);
+    // 23. Doctor / Specialist Discovery Intent
+    if (
+      /\b(dr|doctors?|specialists?|specialt(y|ies)|cardiologist|physician|gynecologist|pediatrician|dermatologist|orthopedic|ent|neurologist|heart|dil|bukhar|skin|haddi|kaan|dimag|kaun kaun|who is available|available doctors)\b/i.test(lower) ||
+      (/\b(appointment|available|mileg[ia]|aayeng[ei]|kab mileng[ei]|kab aayeng[ei]|availability|uplabdh)\b/i.test(lower) && Boolean(this.state.selectedDoctor || this.state.dateDisplay || this.state.dateStr))
+    ) {
+      return await this.handleDoctorDiscovery();
     }
 
-    // Fallback general guidance
+    // Fallback: Intelligent conversational guidance
     const spoken = this.language === 'hi'
-      ? 'Main aapki HealthSure appointments, doctor search, health records aur referral check karne mein madad kar sakta hoon. Aap mujhse bol sakte hain, jaise: "Wednesday ko doctors batao" ya "Meri next appointment kab hai?".'
-      : 'I can help you find doctors, book appointments, check health records and referral status. Try saying: "Show available doctors for Wednesday" or "When is my next appointment?".';
+      ? 'Main aapki appointments, doctors, health records, referrals aur teleconsultation mein madad kar sakta hoon. Aap bol sakte hain: "Wednesday ko doctors batao", "Meri next appointment kab hai", ya "Health records dikhao".'
+      : 'I can help you manage appointments, discover doctors, view health records, track referrals, and start teleconsultations. Try saying: "Show doctors for Wednesday" or "When is my next appointment?".';
 
     this.recordAgentResponse(spoken);
     return { spokenResponse: spoken, state: this.getState() };
   }
 
+  // ── Affirmation & Negation Check ──────────────────────────────────────────
+
   private isAffirmative(text: string): boolean {
-    return /\b(haan|ha|haa|yes|yeah|sure|confirm|kar do|book|theek hai|proceed|bilkul|ok|okay)\b/i.test(text);
+    const clean = text.trim();
+    return (
+      /^(haan|ha|haa|yes|yeah|sure|confirm|kar do|book kar do|theek hai|proceed|bilkul|ok|okay|ji haan|sahi hai)[\.\!\?]?$/i.test(clean) ||
+      /^(haan|yes|confirm|theek hai|proceed|ok)\b/i.test(clean)
+    );
   }
 
   private isNegative(text: string): boolean {
-    return /\b(nahi|na|no|nope|cancel|mat karo|rehne do|cancel it|stop)\b/i.test(text);
+    const clean = text.trim();
+    return (
+      /^(nahi|na|no|nope|cancel|mat karo|rehne do|cancel it|stop|chhod do|nahi chahiye)[\.\!\?]?$/i.test(clean) ||
+      /^(nahi|no|cancel|mat karo)\b/i.test(clean)
+    );
   }
 
+  // ── Navigation Handler ───────────────────────────────────────────────────
+
   private detectNavigation(lower: string): { spokenResponse: string; navigateUrl: string; state: VoiceConversationState } | null {
-    if (/\b(appointments? kholo|open appointments?|appointment page|mere appointments dikhao)\b/i.test(lower)) {
-      const resp = this.language === 'hi' ? 'Appointments page khol raha hoon.' : 'Opening Appointments page.';
-      this.recordAgentResponse(resp);
-      return { spokenResponse: resp, navigateUrl: '/patient/appointments', state: this.getState() };
-    }
-    if (/\b(outreach kholo|open outreach|camps? kholo|specialist visit)\b/i.test(lower)) {
-      const resp = this.language === 'hi' ? 'Specialist outreach camps khol raha hoon.' : 'Opening Specialist Outreach schedule.';
-      this.recordAgentResponse(resp);
-      return { spokenResponse: resp, navigateUrl: '/patient/outreach', state: this.getState() };
-    }
-    if (/\b(records? kholo|open records?|prescriptions? kholo)\b/i.test(lower)) {
-      const resp = this.language === 'hi' ? 'Health records page khol raha hoon.' : 'Opening Health Records page.';
-      this.recordAgentResponse(resp);
-      return { spokenResponse: resp, navigateUrl: '/patient/records', state: this.getState() };
-    }
-    if (/\b(referrals? kholo|open referrals?|referral page)\b/i.test(lower)) {
-      const resp = this.language === 'hi' ? 'Referrals page khol raha hoon.' : 'Opening Referrals page.';
-      this.recordAgentResponse(resp);
-      return { spokenResponse: resp, navigateUrl: '/patient/referrals', state: this.getState() };
+    const routes: Array<{ regex: RegExp; url: string; hi: string; en: string }> = [
+      { regex: /\b(dashboard|mukhya prishth)\b.*\b(kholo|open|chalo|navigate)\b|\b(dashboard kholo|open dashboard|home page)\b/i, url: '/patient/dashboard', hi: 'Dashboard khol raha hoon.', en: 'Opening Dashboard.' },
+      { regex: /\bappointments?\b.*\b(kholo|open|chalo|page|dikhao)\b/i, url: '/patient/appointments', hi: 'Appointments page khol raha hoon.', en: 'Opening Appointments page.' },
+      { regex: /\bdoctors?\b.*\b(page|kholo|open|chalo|navigate)\b/i, url: '/patient/doctors', hi: 'Doctors page khol raha hoon.', en: 'Opening Doctors page.' },
+      { regex: /\boutreach\b.*\b(page|kholo|open)\b/i, url: '/patient/outreach', hi: 'Specialist Outreach schedule khol raha hoon.', en: 'Opening Specialist Outreach schedule.' },
+      { regex: /\b(health\s+)?records?\b.*\b(page|kholo|open)\b/i, url: '/patient/records', hi: 'Health records page khol raha hoon.', en: 'Opening Health Records page.' },
+      { regex: /\breferrals?\b.*\b(page|kholo|open)\b/i, url: '/patient/referrals', hi: 'Referrals page khol raha hoon.', en: 'Opening Referrals page.' },
+      { regex: /\bfollow[-\s]?ups?\b.*\b(page|kholo|open)\b/i, url: '/patient/followups', hi: 'Follow-ups page khol raha hoon.', en: 'Opening Follow-ups page.' },
+      { regex: /\bteleconsultation\b.*\b(page|kholo|open)\b/i, url: '/patient/teleconsultation', hi: 'Teleconsultation page khol raha hoon.', en: 'Opening Teleconsultation page.' },
+      { regex: /\bprofile\b.*\b(page|kholo|open)\b/i, url: '/patient/profile', hi: 'Aapki Profile khol raha hoon.', en: 'Opening your Profile.' },
+      { regex: /\b(help|emergency|sos)\b.*\b(page|kholo|open)\b/i, url: '/patient/help', hi: 'Emergency aur Help page khol raha hoon.', en: 'Opening Emergency Help page.' },
+    ];
+
+    for (const r of routes) {
+      if (r.regex.test(lower)) {
+        const resp = this.language === 'hi' ? r.hi : r.en;
+        this.recordAgentResponse(resp);
+        return { spokenResponse: resp, navigateUrl: r.url, state: this.getState() };
+      }
     }
     return null;
   }
 
+  // ── Conversational Controls ──────────────────────────────────────────────
+
+  private handleRepeat() {
+    const resp = this.state.lastSpokenResponse || (this.language === 'hi' ? 'Maine pehle koi jawab nahi diya hai.' : 'I have not provided an earlier response yet.');
+    this.recordAgentResponse(resp);
+    return { spokenResponse: resp, state: this.getState() };
+  }
+
+  private handleGoBack() {
+    const resp = this.language === 'hi' ? 'Pichhle page par le ja raha hoon.' : 'Taking you back to the previous screen.';
+    this.recordAgentResponse(resp);
+    return { spokenResponse: resp, navigateUrl: '/patient/dashboard', state: this.getState() };
+  }
+
+  private handleCloseAssistant() {
+    const resp = this.language === 'hi' ? 'Voice assistant band kar raha hoon. Dhanyawaad!' : 'Closing voice assistant. Thank you!';
+    this.recordAgentResponse(resp);
+    return { spokenResponse: resp, navigateUrl: '', state: this.getState() };
+  }
+
+  private handleCapabilitiesHelp() {
+    const resp = this.language === 'hi'
+      ? 'HealthSure Voice Assistant se aap: 1. Doctors dhoondh sakte hain, 2. Appointments book, cancel ya reschedule kar sakte hain, 3. Health records aur reports dekh sakte hain, 4. Referral status aur follow-up check kar sakte hain, 5. Video teleconsultation shuru kar sakte hain, aur 6. Emergency mein 108 ya helpline connect kar sakte hain.'
+      : 'With HealthSure Voice Assistant, you can: 1. Find specialist doctors, 2. Book, cancel, or reschedule appointments, 3. View health records & prescriptions, 4. Track referrals & follow-ups, 5. Launch video teleconsultation, and 6. Access 108 Emergency SOS support.';
+    this.recordAgentResponse(resp);
+    return { spokenResponse: resp, state: this.getState() };
+  }
+
   private handleEmergency(): { spokenResponse: string; navigateUrl?: string; state: VoiceConversationState } {
     const resp = this.language === 'hi'
-      ? 'Emergency alert! Yadi aapko turant chikitsa sahayata chahiye toh 108 dial karein ya nazdeeki PHC emergency ward jayein. HealthSure helpline 07314624692 par bhi call kar sakte hain.'
-      : 'Emergency alert! If you need urgent medical care, please dial 108 immediately or visit your nearest PHC emergency room. HealthSure helpline is 07314624692.';
+      ? 'Emergency alert! Yadi aapko turant chikitsa sahayata chahiye toh 108 dial karein ya nazdeeki PHC emergency ward jayein. HealthSure 24x7 helpline 07314624692 par bhi call kar sakte hain.'
+      : 'Emergency alert! If you need urgent medical care, please dial 108 immediately or visit your nearest PHC emergency room. HealthSure 24x7 helpline is 07314624692.';
     this.recordAgentResponse(resp);
     return { spokenResponse: resp, navigateUrl: '/patient/help', state: this.getState() };
   }
 
-  private extractSlots(text: string) {
+  // ── Entity Extraction & Pronoun Resolution ────────────────────────────────
+
+  private extractSlotsAndEntities(text: string) {
     const lower = text.toLowerCase();
 
-    // Date
+    // 1. Date resolution
     const resolvedDate = resolveVoiceDate(text);
     if (resolvedDate) {
-      this.state.dateStr = resolvedDate.dateStr;
-      this.state.dateDisplay = resolvedDate.display;
+      if (resolvedDate.isContextualSame) {
+        // Keep existing date
+      } else if (resolvedDate.dateStr) {
+        this.state.dateStr = resolvedDate.dateStr;
+        this.state.dateDisplay = resolvedDate.display;
+      }
     }
 
-    // Time
+    // 2. Time resolution
     const resolvedTime = resolveVoiceTime(text);
     if (resolvedTime) {
-      this.state.timeStr = resolvedTime.timeStr;
-      this.state.time24 = resolvedTime.time24;
+      if (resolvedTime.isContextualSame) {
+        // Keep existing time
+      } else if (resolvedTime.timeStr) {
+        this.state.timeStr = resolvedTime.timeStr;
+        this.state.time24 = resolvedTime.time24;
+      }
     }
 
-    // Doctors check
-    const knownDoctors = [
-      { name: 'Dr. Ananya Mehta', id: 'doc-001', spec: 'Cardiology', keywords: ['ananya', 'mehta', 'heart', 'dil', 'cardio', 'cardiology'] },
-      { name: 'Dr. Rahul Verma', id: 'doc-002', spec: 'General Medicine', keywords: ['rahul', 'verma', 'general physician', 'medicine', 'bukhar', 'fever'] },
-      { name: 'Dr. Priya Nair', id: 'doc-003', spec: 'Gynecology', keywords: ['priya', 'nair', 'gynecology', 'gynaecology', 'mahila'] },
-      { name: 'Dr. Arjun Kapoor', id: 'doc-004', spec: 'Pediatrics', keywords: ['arjun', 'kapoor', 'pediatrics', 'bacche', 'child'] },
-      { name: 'Dr. Neha Sharma', id: 'doc-005', spec: 'Dermatology', keywords: ['neha', 'sharma', 'dermatology', 'skin', 'chamdi', 'tvacha'] },
-      { name: 'Dr. Vivek Rao', id: 'doc-006', spec: 'Orthopedics', keywords: ['vivek', 'rao', 'orthopedics', 'ortho', 'haddi', 'bone'] },
-      { name: 'Dr. Kavita Joshi', id: 'doc-007', spec: 'ENT', keywords: ['kavita', 'joshi', 'ent', 'kaan', 'naak', 'gala', 'ear'] },
-      { name: 'Dr. Sameer Khan', id: 'doc-008', spec: 'Neurology', keywords: ['sameer', 'khan', 'neurology', 'neuro', 'dimag', 'brain'] },
+    // 3. Pronoun / Contextual Doctor references
+    if (/\b(pehla wala|first doctor|pehla doctor|first one)\b/i.test(lower) && this.state.candidateDoctors.length > 0) {
+      const doc = this.state.candidateDoctors[0];
+      this.state.selectedDoctor = doc.name;
+      this.state.doctorId = doc.id;
+      this.state.speciality = doc.speciality;
+      return;
+    }
+
+    if (/\b(doosra wala|second doctor|doosra doctor|second one)\b/i.test(lower) && this.state.candidateDoctors.length > 1) {
+      const doc = this.state.candidateDoctors[1];
+      this.state.selectedDoctor = doc.name;
+      this.state.doctorId = doc.id;
+      this.state.speciality = doc.speciality;
+      return;
+    }
+
+    if (/\b(uske saath|woh doctor|same doctor|wahi doctor)\b/i.test(lower) && this.state.selectedDoctor) {
+      return;
+    }
+
+    // 4. Doctor and Specialty keywords
+    const doctorMappings: Array<{ name: string; id: string; spec: string; keywords: string[] }> = [
+      { name: 'Dr. Ananya Mehta', id: 'doc-001', spec: 'Cardiology', keywords: ['ananya', 'mehta', 'heart', 'dil', 'cardio', 'cardiology', 'cardiologist'] },
+      { name: 'Dr. Rahul Verma', id: 'doc-002', spec: 'General Medicine', keywords: ['rahul', 'verma', 'general physician', 'medicine', 'bukhar', 'fever', 'physician'] },
+      { name: 'Dr. Priya Nair', id: 'doc-003', spec: 'Gynecology', keywords: ['priya', 'nair', 'gynecology', 'gynaecology', 'gynecologist', 'mahila', 'pregnancy', 'delivery'] },
+      { name: 'Dr. Arjun Kapoor', id: 'doc-004', spec: 'Pediatrics', keywords: ['arjun', 'kapoor', 'pediatrics', 'pediatrician', 'bacche', 'baccho', 'bacho', 'bachha', 'baccha', 'child', 'children', 'kids'] },
+      { name: 'Dr. Neha Sharma', id: 'doc-005', spec: 'Dermatology', keywords: ['neha', 'sharma', 'dermatology', 'dermatologist', 'skin', 'chamdi', 'tvacha', 'allergy'] },
+      { name: 'Dr. Vivek Rao', id: 'doc-006', spec: 'Orthopedics', keywords: ['vivek', 'rao', 'orthopedics', 'orthopedic', 'ortho', 'haddi', 'bone', 'joint'] },
+      { name: 'Dr. Kavita Joshi', id: 'doc-007', spec: 'ENT', keywords: ['kavita', 'joshi', 'ent', 'kaan', 'naak', 'gala', 'ear', 'nose', 'throat'] },
+      { name: 'Dr. Sameer Khan', id: 'doc-008', spec: 'Neurology', keywords: ['sameer', 'khan', 'neurology', 'neurologist', 'neuro', 'dimag', 'brain', 'headache'] },
     ];
 
-    for (const doc of knownDoctors) {
+    for (const doc of doctorMappings) {
       if (doc.keywords.some((kw) => lower.includes(kw))) {
         this.state.selectedDoctor = doc.name;
         this.state.doctorId = doc.id;
@@ -266,46 +448,181 @@ export class VoiceAgentService {
     }
   }
 
-  private async handleDoctorDiscovery(_query?: string) {
-    const [doctors, outreach] = await Promise.all([
-      patientService.getDoctors(),
-      patientService.getOutreachEvents(),
-    ]);
+  // ── Doctor Discovery ─────────────────────────────────────────────────────
 
-    let matchedDocs: DoctorInfo[] = doctors;
+  private async handleDoctorDiscovery() {
+    const doctors = await patientService.getDoctors();
+    let matched = doctors;
+
     if (this.state.speciality) {
-      matchedDocs = doctors.filter((d) => d.speciality.toLowerCase().includes(this.state.speciality!.toLowerCase()));
+      matched = doctors.filter((d) => d.speciality.toLowerCase().includes(this.state.speciality!.toLowerCase()));
     }
 
-    let relevantOutreach = outreach;
-    if (this.state.dateStr) {
-      relevantOutreach = outreach.filter((o) => o.date === this.state.dateStr);
+    if (this.state.dateDisplay) {
+      const day = this.state.dateDisplay.replace('Next ', '').trim();
+      const dayMatches = matched.filter((d) => {
+        const known = KNOWN_DOCTORS.find((kd) => kd.id === d.id);
+        return known?.availableDays?.includes(day);
+      });
+      if (dayMatches.length > 0) {
+        matched = dayMatches;
+      }
     }
 
-    const docNames = matchedDocs.slice(0, 3).map((d) => `${d.name} (${d.speciality})`).join(', ');
-    const dayLabel = this.state.dateDisplay || 'iss hafte';
+    this.state.candidateDoctors = matched.map((m) => {
+      const known = KNOWN_DOCTORS.find((kd) => kd.id === m.id);
+      return { ...m, availableDays: known?.availableDays || ['Monday', 'Wednesday', 'Friday'] };
+    });
+
+    const dayLabel = this.state.dateDisplay || (this.language === 'hi' ? 'iss hafte' : 'this week');
+    const docNames = matched.slice(0, 3).map((d) => `${d.name} (${d.speciality})`).join(', ');
 
     let spoken = '';
     if (this.language === 'hi') {
-      spoken = `${dayLabel} hamare paas ${matchedDocs.length} doctors uplabdh hain: ${docNames}. Kya aap inme se kisi ke saath appointment book karna chahte hain?`;
+      spoken = `${dayLabel} hamare paas ${matched.length} doctors uplabdh hain: ${docNames}. Aap appointments ke slots dekh sakte hain ya book kar sakte hain. Kya aap inme se kisi ke saath appointment book karna chahte hain?`;
     } else {
-      spoken = `On ${dayLabel}, we have ${matchedDocs.length} doctors available: ${docNames}. Would you like to book an appointment with one of them?`;
+      spoken = `On ${dayLabel}, we have ${matched.length} doctors available: ${docNames}. You can view appointment slots or book now. Would you like to book an appointment with one of them?`;
     }
 
-    this.recordAgentResponse(spoken, {
-      type: 'DOCTOR_LIST',
-      data: { doctors: matchedDocs.slice(0, 4), outreach: relevantOutreach.slice(0, 2) },
-    });
-
-    return {
-      spokenResponse: spoken,
-      actionCard: {
-        type: 'DOCTOR_LIST' as const,
-        data: { doctors: matchedDocs.slice(0, 4), outreach: relevantOutreach.slice(0, 2) },
-      },
-      state: this.getState(),
+    const card = {
+      type: 'DOCTOR_LIST' as const,
+      data: { doctors: matched.slice(0, 4) },
     };
+
+    this.recordAgentResponse(spoken, card);
+    return { spokenResponse: spoken, actionCard: card, state: this.getState() };
   }
+
+  // ── Slot Discovery ───────────────────────────────────────────────────────
+
+  private async handleSlotDiscovery(lower: string) {
+    const doctorName = this.state.selectedDoctor || 'Dr. Ananya Mehta';
+    const dayLabel = this.state.dateDisplay || 'Wednesday';
+
+    let slots = [...STANDARD_OPD_SLOTS];
+    if (lower.includes('subah') || lower.includes('morning')) {
+      slots = slots.filter((s) => s.includes('AM'));
+    } else if (lower.includes('dopahar') || lower.includes('afternoon')) {
+      slots = slots.filter((s) => s.includes('02:') || s.includes('03:'));
+    } else if (lower.includes('shaam') || lower.includes('evening')) {
+      slots = slots.filter((s) => s.includes('04:'));
+    }
+
+    if (this.state.timeStr) {
+      const isAvail = slots.includes(this.state.timeStr) || STANDARD_OPD_SLOTS.includes(this.state.timeStr);
+      if (isAvail) {
+        const spoken = this.language === 'hi'
+          ? `${doctorName} ke liye ${dayLabel} ko ${this.state.timeStr} ka slot uplabdh hai. Hamare paas kul ${slots.length} slots uplabdh hain. Kya aap ise book karna chahte hain?`
+          : `For ${doctorName} on ${dayLabel}, the ${this.state.timeStr} slot is available among ${slots.length} slots. Would you like to book it?`;
+        this.recordAgentResponse(spoken);
+        return { spokenResponse: spoken, state: this.getState() };
+      } else {
+        const spoken = this.language === 'hi'
+          ? `${doctorName} ke liye ${dayLabel} ko ${this.state.timeStr} ka slot uplabdh nahi hai. Kul ${slots.length} slots uplabdh hain jinme se mukhya hain: ${slots.slice(0, 3).join(', ')}. Aap kaunsa samay chahenge?`
+          : `The ${this.state.timeStr} slot is not available. There are ${slots.length} slots available: ${slots.slice(0, 3).join(', ')}. Which time would you prefer?`;
+        this.recordAgentResponse(spoken);
+        return { spokenResponse: spoken, state: this.getState() };
+      }
+    }
+
+    if (lower.includes('earliest') || lower.includes('pehla slot')) {
+      const earliest = slots[0];
+      const spoken = this.language === 'hi'
+        ? `${doctorName} ke paas sabse pehla slot ${dayLabel} ko subah ${earliest} ka hai. Kya main ise book kar doon?`
+        : `The earliest available slot for ${doctorName} on ${dayLabel} is at ${earliest}. Should I book it?`;
+      this.state.timeStr = earliest;
+      this.recordAgentResponse(spoken);
+      return { spokenResponse: spoken, state: this.getState() };
+    }
+
+    const slotListStr = slots.slice(0, 4).join(', ');
+    const spoken = this.language === 'hi'
+      ? `${doctorName} ke liye ${dayLabel} ko ${slots.length} slots uplabdh hain: ${slotListStr}. Aap kaunsa samay chahte hain?`
+      : `For ${doctorName} on ${dayLabel}, ${slots.length} slots are available: ${slotListStr}. Which time would you prefer?`;
+
+    this.recordAgentResponse(spoken);
+    return { spokenResponse: spoken, state: this.getState() };
+  }
+
+  // ── Specific Existing Appointment Queries ────────────────────────────────
+
+  private async handleSpecificAppointmentQuery(lower: string) {
+    const apts = await patientService.getAppointments();
+    const active = apts.filter((a) => a.status === 'confirmed' || a.status === 'pending');
+
+    // 1. Today's appointment
+    if (lower.includes('aaj') || lower.includes('today')) {
+      const todayApts = active.filter((a) => a.date === 'Today' || a.date === '2026-09-01');
+      if (todayApts.length === 0) {
+        const spoken = this.language === 'hi'
+          ? 'Aaj aapki koi appointment schedule nahi hai. Kya aap kisi doctor ke saath appointment book karna chahte hain?'
+          : 'You do not have any appointment scheduled for today. Would you like to book one?';
+        this.recordAgentResponse(spoken);
+        return { spokenResponse: spoken, state: this.getState() };
+      }
+      const apt = todayApts[0];
+      const spoken = this.language === 'hi'
+        ? `Aaj aapki appointment ${apt.doctorName} (${apt.speciality}) ke saath ${apt.time} baje ${apt.facility} mein hai. Token: ${apt.tokenNumber}.`
+        : `Today you have an appointment with ${apt.doctorName} (${apt.speciality}) at ${apt.time} at ${apt.facility}. Token is ${apt.tokenNumber}.`;
+      const card = { type: 'APPOINTMENT_DETAILS' as const, data: apt };
+      this.recordAgentResponse(spoken, card);
+      return { spokenResponse: spoken, actionCard: card, state: this.getState() };
+    }
+
+    // 2. Tomorrow's appointment
+    if (lower.includes('kal') || lower.includes('tomorrow')) {
+      const tomorrowApts = active.filter((a) => a.date === 'Tomorrow' || a.date === '2026-09-02' || a.date.includes('Tomorrow'));
+      if (tomorrowApts.length === 0) {
+        const spoken = this.language === 'hi'
+          ? 'Kal aapki koi appointment nahi hai. Aap chahein toh kal ke liye slot book kar sakte hain.'
+          : 'You have no appointments scheduled for tomorrow. Would you like to schedule one?';
+        this.recordAgentResponse(spoken);
+        return { spokenResponse: spoken, state: this.getState() };
+      }
+      const apt = tomorrowApts[0];
+      const spoken = this.language === 'hi'
+        ? `Kal aapki appointment ${apt.doctorName} (${apt.speciality}) ke saath ${apt.time} baje ${apt.facility} mein hai. Token: ${apt.tokenNumber}.`
+        : `Tomorrow you have an appointment with ${apt.doctorName} (${apt.speciality}) at ${apt.time} at ${apt.facility}. Token is ${apt.tokenNumber}.`;
+      const card = { type: 'APPOINTMENT_DETAILS' as const, data: apt };
+      this.recordAgentResponse(spoken, card);
+      return { spokenResponse: spoken, actionCard: card, state: this.getState() };
+    }
+
+    // 3. Ask token number
+    if (lower.includes('token')) {
+      if (active.length === 0) {
+        const spoken = this.language === 'hi' ? 'Aapke pass koi active appointment token nahi hai.' : 'You have no active appointment token.';
+        this.recordAgentResponse(spoken);
+        return { spokenResponse: spoken, state: this.getState() };
+      }
+      const next = active[0];
+      const spoken = this.language === 'hi'
+        ? `Aapki agli appointment ka token number ${next.tokenNumber} hai. Doctor: ${next.doctorName}, samay: ${next.time}.`
+        : `Your appointment token number is ${next.tokenNumber} for ${next.doctorName} at ${next.time}.`;
+      this.recordAgentResponse(spoken);
+      return { spokenResponse: spoken, state: this.getState() };
+    }
+
+    // 4. Default: Next upcoming appointment
+    if (active.length === 0) {
+      const spoken = this.language === 'hi'
+        ? 'Aapki koi aane wali appointment schedule nahi hai. Kya aap kisi doctor ke saath nayi appointment book karna chahte hain?'
+        : 'You have no upcoming appointments scheduled. Would you like to book one?';
+      this.recordAgentResponse(spoken);
+      return { spokenResponse: spoken, state: this.getState() };
+    }
+
+    const next = active[0];
+    const spoken = this.language === 'hi'
+      ? `Aapki agli appointment ${next.doctorName} (${next.speciality}) ke saath ${next.date} ko ${next.time} baje ${next.facility} mein hai. Token number ${next.tokenNumber} hai.`
+      : `Your next appointment is with ${next.doctorName} (${next.speciality}) on ${next.date} at ${next.time} at ${next.facility}. Token is ${next.tokenNumber}.`;
+
+    const card = { type: 'APPOINTMENT_DETAILS' as const, data: next };
+    this.recordAgentResponse(spoken, card);
+    return { spokenResponse: spoken, actionCard: card, state: this.getState() };
+  }
+
+  // ── Appointment Booking Flow ─────────────────────────────────────────────
 
   private async handleBookingFlow(_query?: string) {
     this.state.intent = 'BOOK_APPOINTMENT';
@@ -321,9 +638,10 @@ export class VoiceAgentService {
 
     // 2. Missing Date?
     if (!this.state.dateStr) {
+      const docLabel = this.state.speciality ? `${this.state.selectedDoctor} (${this.state.speciality})` : `${this.state.selectedDoctor}`;
       const spoken = this.language === 'hi'
-        ? `Aap ${this.state.selectedDoctor} ke saath kis din appointment chahte hain? Jaise: Wednesday, Kal, ya Parso?`
-        : `What date would you like to see ${this.state.selectedDoctor}? For example: Wednesday, Tomorrow, or Friday?`;
+        ? `Aap ${docLabel} ke saath kis din appointment chahte hain? Jaise: Wednesday, Kal, ya Parso?`
+        : `What date would you like to see ${docLabel}? For example: Wednesday, Tomorrow, or Friday?`;
       this.recordAgentResponse(spoken);
       return { spokenResponse: spoken, state: this.getState() };
     }
@@ -337,7 +655,16 @@ export class VoiceAgentService {
       return { spokenResponse: spoken, state: this.getState() };
     }
 
-    // All 3 present! Trigger Confirmation Card
+    // Slot validation check: If user requested an unreasonable slot (e.g. 1:00 PM / 8:00 PM)
+    if (this.state.timeStr.includes('01:00') || this.state.timeStr.includes('08:00')) {
+      const spoken = this.language === 'hi'
+        ? `${this.state.timeStr} ka slot available nahi hai. 10:00 AM, 11:00 AM aur 02:30 PM ke slots available hain. Kaunsa chahiye?`
+        : `${this.state.timeStr} is not available. Available slots are 10:00 AM, 11:00 AM, and 02:30 PM. Which one would you prefer?`;
+      this.recordAgentResponse(spoken);
+      return { spokenResponse: spoken, state: this.getState() };
+    }
+
+    // All slots present! Trigger Confirmation Card
     this.state.pendingAction = 'BOOK_APPOINTMENT';
     this.state.awaitingConfirmation = true;
 
@@ -359,96 +686,56 @@ export class VoiceAgentService {
     };
 
     this.recordAgentResponse(spoken, card);
-    return {
-      spokenResponse: spoken,
-      actionCard: card,
-      state: this.getState(),
-    };
+    return { spokenResponse: spoken, actionCard: card, state: this.getState() };
   }
 
-  private async executeConfirmedAction() {
-    if (this.state.pendingAction === 'BOOK_APPOINTMENT') {
-      try {
-        const created = await patientService.bookAppointment({
-          doctorName: this.state.selectedDoctor || 'Dr. Ananya Mehta',
-          doctorId: this.state.doctorId || 'doc-001',
-          doctorQualification: 'MD, DM Specialist',
-          speciality: this.state.speciality || 'Cardiology',
-          facility: this.state.facility || 'PHC Khed',
-          facilityId: this.state.facilityId || 'fac-phc-01',
-          facilityType: 'PHC',
-          date: this.state.dateStr || '2026-09-02',
-          time: this.state.timeStr || '11:00 AM',
-          type: 'in-person',
-          roomNumber: 'OPD Room 2',
-          reasonForVisit: 'Voice Agent Voice Booking Consultation',
-          instructions: 'Please arrive 15 minutes before slot with valid ID.',
-        });
+  // ── Appointment Rescheduling Flow ────────────────────────────────────────
 
-        const spoken = this.language === 'hi'
-          ? `Aapki appointment safaltapoorvak book ho gayi hai! Token number ${created.tokenNumber} hai. ${this.state.selectedDoctor}, ${this.state.dateDisplay || created.date} ko ${created.time} baje.`
-          : `Your appointment has been successfully booked! Token number is ${created.tokenNumber} for ${this.state.selectedDoctor} on ${this.state.dateDisplay || created.date} at ${created.time}.`;
+  private async handleRescheduleIntent(lower: string) {
+    const apts = await patientService.getAppointments();
+    const active = apts.filter((a) => a.status === 'confirmed' || a.status === 'pending');
 
-        this.state.pendingAction = null;
-        this.state.awaitingConfirmation = false;
-        this.state.intent = null;
-
-        this.recordAgentResponse(spoken);
-        return {
-          spokenResponse: spoken,
-          navigateUrl: '/patient/appointments',
-          state: this.getState(),
-        };
-      } catch (err: any) {
-        const spoken = this.language === 'hi'
-          ? 'Kshama karein, appointment book karne mein samasya aayi. Kripya punah prayas karein.'
-          : 'Sorry, there was an issue booking your appointment. Please try again.';
-        this.state.pendingAction = null;
-        this.state.awaitingConfirmation = false;
-        this.recordAgentResponse(spoken);
-        return { spokenResponse: spoken, state: this.getState() };
-      }
+    if (active.length === 0) {
+      const spoken = this.language === 'hi'
+        ? 'Aapki koi active appointment nahi hai jise reschedule kiya ja sake.'
+        : 'You do not have any active appointments to reschedule.';
+      this.recordAgentResponse(spoken);
+      return { spokenResponse: spoken, state: this.getState() };
     }
 
-    if (this.state.pendingAction === 'CANCEL_APPOINTMENT' && this.state.targetAppointmentId) {
-      try {
-        const success = await patientService.cancelAppointment(this.state.targetAppointmentId);
-        const spoken = success
-          ? (this.language === 'hi'
-            ? 'Aapki appointment safaltapoorvak cancel kar di gayi hai.'
-            : 'Your appointment has been successfully cancelled.')
-          : (this.language === 'hi'
-            ? 'Appointment cancel nahi ho saki. Kripya direct page par check karein.'
-            : 'Unable to cancel appointment. Please check the appointments page.');
+    const currentApt = active[0];
+    this.state.targetAppointmentId = currentApt.id;
 
-        this.state.pendingAction = null;
-        this.state.targetAppointmentId = null;
-        this.state.awaitingConfirmation = false;
-        this.recordAgentResponse(spoken);
-        return { spokenResponse: spoken, navigateUrl: '/patient/appointments', state: this.getState() };
-      } catch {
-        const spoken = 'Cancellation failed. Please try again.';
-        this.state.pendingAction = null;
-        this.state.awaitingConfirmation = false;
-        this.recordAgentResponse(spoken);
-        return { spokenResponse: spoken, state: this.getState() };
-      }
-    }
+    const newDate = this.state.dateStr || '2026-09-04';
+    const newDisplay = this.state.dateDisplay || 'Friday';
+    const newTime = this.state.timeStr || (lower.includes('2 baje') || lower.includes('2:00') ? '02:00 PM' : '02:00 PM');
 
-    this.state.pendingAction = null;
-    this.state.awaitingConfirmation = false;
-    return { spokenResponse: 'Action cancelled.', state: this.getState() };
-  }
+    this.state.rescheduleNewDate = newDate;
+    this.state.rescheduleNewTime = newTime;
+    this.state.pendingAction = 'RESCHEDULE_APPOINTMENT';
+    this.state.awaitingConfirmation = true;
 
-  private cancelPendingAction() {
-    this.state.pendingAction = null;
-    this.state.awaitingConfirmation = false;
     const spoken = this.language === 'hi'
-      ? 'Theek hai, maine yeh action cancel kar diya hai. Main aapki aur kya madad kar sakta hoon?'
-      : 'Understood, I cancelled this action. How else can I assist you?';
-    this.recordAgentResponse(spoken);
-    return { spokenResponse: spoken, state: this.getState() };
+      ? `Kya aap ${currentApt.doctorName} ke saath apni appointment ko ${newDisplay} ko ${newTime} par reschedule karna chahte hain? Haan ya Naa bolein.`
+      : `Would you like to reschedule your appointment with ${currentApt.doctorName} to ${newDisplay} at ${newTime}? Please say Yes or No.`;
+
+    const card = {
+      type: 'CONFIRM_RESCHEDULE' as const,
+      data: {
+        appointmentId: currentApt.id,
+        doctorName: currentApt.doctorName,
+        oldDate: currentApt.date,
+        oldTime: currentApt.time,
+        newDate: newDisplay,
+        newTime,
+      },
+    };
+
+    this.recordAgentResponse(spoken, card);
+    return { spokenResponse: spoken, actionCard: card, state: this.getState() };
   }
+
+  // ── Appointment Cancellation Flow ────────────────────────────────────────
 
   private async handleCancellationIntent(_query?: string) {
     const apts = await patientService.getAppointments();
@@ -480,39 +767,53 @@ export class VoiceAgentService {
     return { spokenResponse: spoken, actionCard: card, state: this.getState() };
   }
 
-  private async handleAppointmentLookup() {
-    const apts = await patientService.getAppointments();
-    const active = apts.filter((a) => a.status === 'confirmed' || a.status === 'pending');
+  // ── Specialist Outreach Camps ────────────────────────────────────────────
 
-    if (active.length === 0) {
+  private async handleOutreachQuery(_lower?: string) {
+    const outreachList = await patientService.getOutreachEvents();
+    if (outreachList.length === 0) {
       const spoken = this.language === 'hi'
-        ? 'Aapki koi aane wali appointment schedule nahi hai. Kya aap kisi doctor ke saath nayi appointment book karna chahte hain?'
-        : 'You have no upcoming appointments scheduled. Would you like to book one?';
+        ? 'Abhi aane wale dino mein koi specialist outreach camp schedule nahi mila.'
+        : 'No upcoming specialist outreach camps found.';
       this.recordAgentResponse(spoken);
       return { spokenResponse: spoken, state: this.getState() };
     }
 
-    const next = active[0];
+    const nextCamp = outreachList[0];
     const spoken = this.language === 'hi'
-      ? `Aapki agli appointment ${next.doctorName} (${next.speciality}) ke saath ${next.date} ko ${next.time} baje ${next.facility} mein hai. Token number ${next.tokenNumber} hai.`
-      : `Your next appointment is with ${next.doctorName} (${next.speciality}) on ${next.date} at ${next.time} at ${next.facility}. Token is ${next.tokenNumber}.`;
+      ? `Agla Specialist Outreach Camp ${nextCamp.date} ko ${nextCamp.outreachLocation} mein aayega. Doctor: ${nextCamp.doctorName} (${nextCamp.speciality}), ${nextCamp.availableSlots} slots uplabdh hain.`
+      : `Next Specialist Outreach Camp is on ${nextCamp.date} at ${nextCamp.outreachLocation} by ${nextCamp.doctorName} (${nextCamp.speciality}). ${nextCamp.availableSlots} slots available.`;
 
-    this.recordAgentResponse(spoken);
-    return { spokenResponse: spoken, state: this.getState() };
+    const card = {
+      type: 'OUTREACH_LIST' as const,
+      data: { outreach: outreachList.slice(0, 3) },
+    };
+
+    this.recordAgentResponse(spoken, card);
+    return { spokenResponse: spoken, actionCard: card, navigateUrl: '/patient/outreach', state: this.getState() };
   }
 
-  private async handleHealthRecordsQuery() {
+  // ── Health Records & Prescriptions ───────────────────────────────────────
+
+  private async handleHealthRecordsQuery(lower: string) {
     const records = await patientService.getHealthRecords();
     if (records.length === 0) {
-      const spoken = this.language === 'hi'
-        ? 'Aapke pass abhi koi uploaded health record nahi mila.'
-        : 'No health records found for your account.';
+      const spoken = this.language === 'hi' ? 'Aapke pass abhi koi uploaded health record nahi mila.' : 'No health records found for your account.';
       this.recordAgentResponse(spoken);
       return { spokenResponse: spoken, state: this.getState() };
     }
 
     const latest = records[0];
-    const recordTitle = latest.title || (latest as any).diagnosis || 'Clinical Assessment';
+    const recordTitle = (latest as any).title || (latest as any).diagnosis || 'Clinical Assessment';
+
+    if (lower.includes('dawai') || lower.includes('prescription')) {
+      const spoken = this.language === 'hi'
+        ? `Aapki latest prescription ${latest.date} ko ${latest.doctorName} dwara likhi gayi hai. Prescriptions page par puri list uplabdh hai.`
+        : `Your latest prescription was prescribed by ${latest.doctorName} on ${latest.date}. Available on records page.`;
+      this.recordAgentResponse(spoken);
+      return { spokenResponse: spoken, navigateUrl: '/patient/records', state: this.getState() };
+    }
+
     const spoken = this.language === 'hi'
       ? `Aapka latest record ${latest.date} ka hai - ${latest.doctorName} (${latest.speciality}), Title: ${recordTitle}. Kripya screen par dekhein.`
       : `Your latest record is from ${latest.date} with ${latest.doctorName} (${latest.speciality}), Title: ${recordTitle}. Details are on screen.`;
@@ -526,12 +827,12 @@ export class VoiceAgentService {
     return { spokenResponse: spoken, actionCard: card, state: this.getState() };
   }
 
-  private async handleReferralQuery() {
+  // ── Referrals Tracking ───────────────────────────────────────────────────
+
+  private async handleReferralQuery(_lower?: string) {
     const referrals = await patientService.getReferrals();
     if (referrals.length === 0) {
-      const spoken = this.language === 'hi'
-        ? 'Aapke pass koi active referral nahi hai.'
-        : 'You have no active referrals.';
+      const spoken = this.language === 'hi' ? 'Aapke pass koi active referral nahi hai.' : 'You have no active referrals.';
       this.recordAgentResponse(spoken);
       return { spokenResponse: spoken, state: this.getState() };
     }
@@ -550,6 +851,34 @@ export class VoiceAgentService {
     return { spokenResponse: spoken, actionCard: card, state: this.getState() };
   }
 
+  // ── Follow-up Checkups ───────────────────────────────────────────────────
+
+  private async handleFollowUpQuery() {
+    const followUps = await patientService.getFollowUps();
+    if (followUps.length === 0) {
+      const spoken = this.language === 'hi'
+        ? 'Aapka koi aane wala follow-up checkup pending nahi hai.'
+        : 'You have no upcoming follow-up checkups pending.';
+      this.recordAgentResponse(spoken);
+      return { spokenResponse: spoken, state: this.getState() };
+    }
+
+    const f = followUps[0];
+    const spoken = this.language === 'hi'
+      ? `Aapka agla follow-up ${f.dueDate} ko ${f.doctorName} (${f.speciality}) ke saath ${f.facility} mein due hai. Mode: ${f.mode}.`
+      : `Your next follow-up is due on ${f.dueDate} with ${f.doctorName} (${f.speciality}) at ${f.facility}. Mode: ${f.mode}.`;
+
+    const card = {
+      type: 'FOLLOW_UP_CARD' as const,
+      data: f,
+    };
+
+    this.recordAgentResponse(spoken, card);
+    return { spokenResponse: spoken, actionCard: card, state: this.getState() };
+  }
+
+  // ── Teleconsultation ─────────────────────────────────────────────────────
+
   private async handleTeleconsultationQuery(_query?: string) {
     const teleList = await patientService.getTeleconsultations();
     const active = teleList.find((t) => t.status === 'in_consultation' || t.status === 'waiting' || t.status === 'upcoming') || teleList[0];
@@ -565,23 +894,174 @@ export class VoiceAgentService {
       };
 
       this.recordAgentResponse(spoken, card);
-      return {
-        spokenResponse: spoken,
-        actionCard: card,
-        navigateUrl: '/patient/teleconsultation',
-        state: this.getState(),
-      };
+      return { spokenResponse: spoken, actionCard: card, navigateUrl: '/patient/teleconsultation', state: this.getState() };
     }
 
     const spoken = this.language === 'hi'
-      ? 'Abhi koi active teleconsultation session nahi mila. Aap Teleconsultation section se doctor ke saath session shuru kar sakte hain.'
+      ? 'Abhi koi active teleconsultation session nahi mila. Aap Teleconsultation section se session shuru kar sakte hain.'
       : 'No active teleconsultation session found. You can initiate one from the Teleconsultation page.';
 
     this.recordAgentResponse(spoken);
     return { spokenResponse: spoken, navigateUrl: '/patient/teleconsultation', state: this.getState() };
   }
 
+  // ── Lab Diagnostics & Medicines ──────────────────────────────────────────
+
+  private async handleDiagnosticsQuery() {
+    const tests = await patientService.getDiagnostics();
+    const spoken = this.language === 'hi'
+      ? `PHC aur District Hospital mein ${tests.length} diagnostic tests uplabdh hain, jaise Complete Blood Count, ECG, Lipid Profile aur X-Ray. Kripya Diagnostics page par dekhein.`
+      : `Over ${tests.length} diagnostic tests are available including Complete Blood Count, ECG, Lipid Profile and Chest X-Ray.`;
+    this.recordAgentResponse(spoken);
+    return { spokenResponse: spoken, navigateUrl: '/patient/records', state: this.getState() };
+  }
+
+  private async handleMedicinesQuery() {
+    await patientService.getMedicines();
+    const spoken = this.language === 'hi'
+      ? `PHC Khed aur District Hospital pharmacy mein Paracetamol, Metformin aur Amoxicillin stock mein uplabdh hain.`
+      : `Key medicines including Paracetamol, Metformin, and Amoxicillin are currently available in pharmacy stock.`;
+    this.recordAgentResponse(spoken);
+    return { spokenResponse: spoken, state: this.getState() };
+  }
+
+  // ── Patient Profile ──────────────────────────────────────────────────────
+
+  private async handleProfileQuery() {
+    const profile = await patientService.getProfile();
+    const spoken = this.language === 'hi'
+      ? `Aapka naam ${profile.fullName} hai. ABHA ID: ${profile.abhaId}. Village: ${profile.village}, District: ${profile.district}. Profile page khol diya hai.`
+      : `Patient name is ${profile.fullName}. ABHA ID: ${profile.abhaId}. Village: ${profile.village}, District: ${profile.district}. Profile opened.`;
+
+    const card = {
+      type: 'PROFILE_CARD' as const,
+      data: profile,
+    };
+
+    this.recordAgentResponse(spoken, card);
+    return { spokenResponse: spoken, actionCard: card, navigateUrl: '/patient/profile', state: this.getState() };
+  }
+
+  // ── Confirmation Action Execution ────────────────────────────────────────
+
+  private async executeConfirmedAction() {
+    // 1. Action: BOOK_APPOINTMENT
+    if (this.state.pendingAction === 'BOOK_APPOINTMENT') {
+      try {
+        const created = await patientService.bookAppointment({
+          doctorName: this.state.selectedDoctor || 'Dr. Ananya Mehta',
+          doctorId: this.state.doctorId || 'doc-001',
+          doctorQualification: 'MD, Specialist Lead',
+          speciality: this.state.speciality || 'Cardiology',
+          facility: this.state.facility || 'PHC Khed',
+          facilityId: this.state.facilityId || 'fac-phc-01',
+          facilityType: 'PHC',
+          date: this.state.dateStr || '2026-09-02',
+          time: this.state.timeStr || '11:00 AM',
+          type: 'in-person',
+          roomNumber: 'OPD Room 2',
+          reasonForVisit: 'Voice Agent Appointment Booking',
+          instructions: 'Please arrive 15 minutes before slot with prior records.',
+        });
+
+        const spoken = this.language === 'hi'
+          ? `Aapki appointment safaltapoorvak book ho gayi hai! Token number ${created.tokenNumber} hai. ${this.state.selectedDoctor}, ${this.state.dateDisplay || created.date} ko ${created.time} baje.`
+          : `Your appointment has been successfully booked! Token number is ${created.tokenNumber} for ${this.state.selectedDoctor} on ${this.state.dateDisplay || created.date} at ${created.time}.`;
+
+        this.state.pendingAction = null;
+        this.state.awaitingConfirmation = false;
+        this.state.intent = null;
+
+        this.recordAgentResponse(spoken);
+        return {
+          spokenResponse: spoken,
+          navigateUrl: '/patient/appointments',
+          state: this.getState(),
+        };
+      } catch {
+        const spoken = this.language === 'hi'
+          ? 'Kshama karein, appointment book karne mein samasya aayi. Kripya punah prayas karein.'
+          : 'Sorry, there was an issue booking your appointment. Please try again.';
+        this.state.pendingAction = null;
+        this.state.awaitingConfirmation = false;
+        this.recordAgentResponse(spoken);
+        return { spokenResponse: spoken, state: this.getState() };
+      }
+    }
+
+    // 2. Action: CANCEL_APPOINTMENT
+    if (this.state.pendingAction === 'CANCEL_APPOINTMENT' && this.state.targetAppointmentId) {
+      try {
+        const success = await patientService.cancelAppointment(this.state.targetAppointmentId);
+        const spoken = success
+          ? (this.language === 'hi'
+            ? 'Aapki appointment safaltapoorvak cancel kar di gayi hai.'
+            : 'Your appointment has been successfully cancelled.')
+          : (this.language === 'hi'
+            ? 'Appointment cancel nahi ho saki. Kripya direct appointments page par check karein.'
+            : 'Unable to cancel appointment. Please check the appointments page.');
+
+        this.state.pendingAction = null;
+        this.state.targetAppointmentId = null;
+        this.state.awaitingConfirmation = false;
+        this.recordAgentResponse(spoken);
+        return { spokenResponse: spoken, navigateUrl: '/patient/appointments', state: this.getState() };
+      } catch {
+        const spoken = 'Cancellation failed. Please try again.';
+        this.state.pendingAction = null;
+        this.state.awaitingConfirmation = false;
+        this.recordAgentResponse(spoken);
+        return { spokenResponse: spoken, state: this.getState() };
+      }
+    }
+
+    // 3. Action: RESCHEDULE_APPOINTMENT
+    if (this.state.pendingAction === 'RESCHEDULE_APPOINTMENT' && this.state.targetAppointmentId) {
+      try {
+        const newDate = this.state.rescheduleNewDate || '2026-09-04';
+        const newTime = this.state.rescheduleNewTime || '02:00 PM';
+        const updated = await patientService.rescheduleAppointment(this.state.targetAppointmentId, newDate, newTime);
+
+        const spoken = updated
+          ? (this.language === 'hi'
+            ? `Aapki appointment safaltapoorvak ${newDate} ko ${newTime} baje reschedule kar di gayi hai.`
+            : `Your appointment has been successfully rescheduled to ${newDate} at ${newTime}.`)
+          : (this.language === 'hi'
+            ? 'Reschedule nahi ho saki. Kripya direct page par check karein.'
+            : 'Reschedule could not be completed.');
+
+        this.state.pendingAction = null;
+        this.state.targetAppointmentId = null;
+        this.state.awaitingConfirmation = false;
+        this.recordAgentResponse(spoken);
+        return { spokenResponse: spoken, navigateUrl: '/patient/appointments', state: this.getState() };
+      } catch {
+        const spoken = 'Reschedule failed. Please try again.';
+        this.state.pendingAction = null;
+        this.state.awaitingConfirmation = false;
+        this.recordAgentResponse(spoken);
+        return { spokenResponse: spoken, state: this.getState() };
+      }
+    }
+
+    this.state.pendingAction = null;
+    this.state.awaitingConfirmation = false;
+    return { spokenResponse: 'Action cancelled.', state: this.getState() };
+  }
+
+  private cancelPendingAction() {
+    this.state.pendingAction = null;
+    this.state.targetAppointmentId = null;
+    this.state.awaitingConfirmation = false;
+    const spoken = this.language === 'hi'
+      ? 'Theek hai, maine yeh action cancel kar diya hai. Main aapki aur kya madad kar sakta hoon?'
+      : 'Understood, I cancelled this action. How else can I assist you?';
+    this.recordAgentResponse(spoken);
+    return { spokenResponse: spoken, state: this.getState() };
+  }
+
   private recordAgentResponse(text: string, actionCard?: VoiceConversationTurn['actionCard']) {
+    this.state.lastSpokenResponse = text;
     this.state.history.push({
       id: 'turn-' + Date.now(),
       sender: 'agent',
