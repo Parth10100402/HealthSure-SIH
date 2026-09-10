@@ -221,6 +221,9 @@ export function resolveVoiceTime(
     } else if (h === 12) {
       // 12 o'clock in medical clinic appointments defaults to 12:00 PM noon unless explicitly marked night
       hours = (lower.includes('raat') || lower.includes('midnight')) ? 0 : 12;
+    } else if (h >= 1 && h <= 7) {
+      // In OPD scheduling, 1 to 7 without explicit 'am' or 'subah' defaults to PM (1:00 PM to 7:00 PM)
+      hours = h + 12;
     } else {
       hours = (h >= 1 && h <= 6 && isPM) ? h + 12 : h;
     }
@@ -230,7 +233,9 @@ export function resolveVoiceTime(
     for (const [w, val] of Object.entries(hindiNumberWords)) {
       const wRegex = new RegExp('(?:^|\\s|\\b)' + w + '\\s*(?:baje|ke aas paas)?(?:\\b|\\s|$)', 'i');
       if (wRegex.test(lower)) {
-        if (isPM && val < 12 && val <= 8) {
+        if (val >= 1 && val <= 7 && !lower.includes('subah') && !lower.includes('am')) {
+          hours = val + 12;
+        } else if (isPM && val < 12 && val <= 8) {
           hours = val + 12;
         } else {
           hours = val;
@@ -244,8 +249,9 @@ export function resolveVoiceTime(
     const h12 = hours % 12 === 0 ? 12 : hours % 12;
     const ampm = hours >= 12 ? 'PM' : 'AM';
     const minStr = String(minutes).padStart(2, '0');
+    const h12Str = String(h12).padStart(2, '0');
     return {
-      timeStr: `${h12}:${minStr} ${ampm}`,
+      timeStr: `${h12Str}:${minStr} ${ampm}`,
       time24: `${String(hours).padStart(2, '0')}:${minStr}`,
     };
   }

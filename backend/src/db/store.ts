@@ -239,6 +239,9 @@ export class DataStore {
       hospitalId: dhRatnagiri.id,
       designation: 'Senior Consultant Cardiologist & Outreach Lead',
       status: 'active',
+      availableDays: ['Monday', 'Wednesday', 'Friday', 'Saturday'],
+      modes: ['in-person', 'teleconsultation', 'outreach'],
+      slots: ['09:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM', '02:00 PM', '04:00 PM'],
       createdAt: new Date('2026-08-01'),
       updatedAt: new Date('2026-08-01'),
     };
@@ -253,6 +256,9 @@ export class DataStore {
       hospitalId: dhPune.id,
       designation: 'Consultant Physician & Rural Outreach Specialist',
       status: 'active',
+      availableDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+      modes: ['in-person', 'teleconsultation', 'outreach'],
+      slots: ['09:30 AM', '11:30 AM', '01:00 PM', '03:00 PM'],
       createdAt: new Date('2026-08-01'),
       updatedAt: new Date('2026-08-01'),
     };
@@ -267,6 +273,9 @@ export class DataStore {
       hospitalId: sdhSawantwadi.id,
       designation: 'Maternal Health Specialist & Obstetrician',
       status: 'active',
+      availableDays: ['Tuesday', 'Wednesday', 'Friday', 'Saturday'],
+      modes: ['in-person', 'teleconsultation'],
+      slots: ['10:00 AM', '11:30 AM', '01:00 PM', '02:00 PM'],
       createdAt: new Date('2026-08-01'),
       updatedAt: new Date('2026-08-01'),
     };
@@ -281,6 +290,9 @@ export class DataStore {
       hospitalId: dhRatnagiri.id,
       designation: 'Senior Pediatrician & Child Health Nodal Officer',
       status: 'active',
+      availableDays: ['Monday', 'Wednesday', 'Thursday', 'Friday', 'Sunday'],
+      modes: ['in-person', 'teleconsultation'],
+      slots: ['09:00 AM', '10:30 AM', '12:00 PM', '01:00 PM'],
       createdAt: new Date('2026-08-01'),
       updatedAt: new Date('2026-08-01'),
     };
@@ -295,6 +307,9 @@ export class DataStore {
       hospitalId: dhRatnagiri.id,
       designation: 'Consultant Dermatologist & Teledermatology Lead',
       status: 'active',
+      availableDays: ['Wednesday', 'Friday', 'Saturday'],
+      modes: ['in-person', 'teleconsultation'],
+      slots: ['10:30 AM', '12:30 PM', '02:30 PM', '04:00 PM'],
       createdAt: new Date('2026-08-01'),
       updatedAt: new Date('2026-08-01'),
     };
@@ -309,6 +324,9 @@ export class DataStore {
       hospitalId: dhRatnagiri.id,
       designation: 'Senior Orthopedic Surgeon & Trauma Lead',
       status: 'active',
+      availableDays: ['Tuesday', 'Wednesday', 'Friday', 'Saturday'],
+      modes: ['in-person', 'outreach'],
+      slots: ['09:30 AM', '11:00 AM', '01:30 PM', '02:30 PM'],
       createdAt: new Date('2026-08-01'),
       updatedAt: new Date('2026-08-01'),
     };
@@ -323,6 +341,9 @@ export class DataStore {
       hospitalId: sdhSawantwadi.id,
       designation: 'Consultant ENT & Audiology Specialist',
       status: 'active',
+      availableDays: ['Monday', 'Wednesday', 'Friday'],
+      modes: ['in-person', 'teleconsultation'],
+      slots: ['09:30 AM', '11:00 AM', '01:00 PM', '03:00 PM'],
       createdAt: new Date('2026-08-01'),
       updatedAt: new Date('2026-08-01'),
     };
@@ -337,13 +358,223 @@ export class DataStore {
       hospitalId: dhRatnagiri.id,
       designation: 'Senior Consultant Neurologist & Stroke Specialist',
       status: 'active',
+      availableDays: ['Wednesday', 'Thursday', 'Friday'],
+      modes: ['in-person', 'teleconsultation'],
+      slots: ['11:00 AM', '12:30 PM', '02:00 PM', '03:30 PM'],
       createdAt: new Date('2026-08-01'),
       updatedAt: new Date('2026-08-01'),
     };
 
-    this.doctors = [doc1, doc2, doc3, doc4, doc5, doc6, doc7, doc8];
+    const doc9: DoctorEntity = {
+      id: 'doc-009',
+      userId: 'usr-doctor-009',
+      doctorId: 'DOC-MED-9102',
+      name: 'Dr. Rajesh Patil',
+      speciality: 'General Medicine',
+      registrationNumber: 'MCI-MH-2013-58190',
+      hospitalId: phcKhed.id,
+      designation: 'Medical Officer In-Charge & Family Physician',
+      status: 'active',
+      availableDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+      modes: ['in-person', 'outreach'],
+      slots: ['09:00 AM', '10:00 AM', '11:00 AM', '02:00 PM', '03:30 PM'],
+      createdAt: new Date('2026-08-01'),
+      updatedAt: new Date('2026-08-01'),
+    };
 
-    // 5. Specialist Outreach Schedules (8 Specialist Sessions)
+    const doc10: DoctorEntity = {
+      id: 'doc-010',
+      userId: 'usr-doctor-010',
+      doctorId: 'DOC-GYN-9203',
+      name: 'Dr. Sunita Kulkarni',
+      speciality: 'Gynecology',
+      registrationNumber: 'MCI-MH-2015-77124',
+      hospitalId: dhRatnagiri.id,
+      designation: 'Senior Obstetrician & Women Health Specialist',
+      status: 'active',
+      availableDays: ['Monday', 'Thursday', 'Friday'],
+      modes: ['in-person', 'outreach'],
+      slots: ['09:30 AM', '11:00 AM', '12:30 PM', '02:00 PM'],
+      createdAt: new Date('2026-08-01'),
+      updatedAt: new Date('2026-08-01'),
+    };
+
+    const doc11: DoctorEntity = {
+      id: 'doc-011',
+      userId: 'usr-doctor-011',
+      doctorId: 'DOC-CARD-9304',
+      name: 'Dr. Amit Deshmukh',
+      speciality: 'Cardiology',
+      registrationNumber: 'MCI-MH-2012-61902',
+      hospitalId: dhPune.id,
+      designation: 'Interventional Cardiologist & Heart Failure Specialist',
+      status: 'active',
+      availableDays: ['Tuesday', 'Thursday', 'Friday', 'Sunday'],
+      modes: ['in-person', 'teleconsultation'],
+      slots: ['10:00 AM', '11:30 AM', '01:30 PM', '03:00 PM'],
+      createdAt: new Date('2026-08-01'),
+      updatedAt: new Date('2026-08-01'),
+    };
+
+    const doc12: DoctorEntity = {
+      id: 'doc-012',
+      userId: 'usr-doctor-012',
+      doctorId: 'DOC-PED-9405',
+      name: 'Dr. Sneha Bhonsle',
+      speciality: 'Pediatrics',
+      registrationNumber: 'MCI-MH-2017-38104',
+      hospitalId: phcChiplun.id,
+      designation: 'Consultant Pediatrician & Neonatologist',
+      status: 'active',
+      availableDays: ['Tuesday', 'Thursday', 'Saturday'],
+      modes: ['in-person', 'outreach'],
+      slots: ['09:30 AM', '11:00 AM', '12:30 PM', '01:30 PM'],
+      createdAt: new Date('2026-08-01'),
+      updatedAt: new Date('2026-08-01'),
+    };
+
+    const doc13: DoctorEntity = {
+      id: 'doc-013',
+      userId: 'usr-doctor-013',
+      doctorId: 'DOC-ORTHO-9506',
+      name: 'Dr. Rahul Shah',
+      speciality: 'Orthopedics',
+      registrationNumber: 'MCI-MH-2014-99231',
+      hospitalId: phcKhed.id,
+      designation: 'Joint Replacement & Arthroscopy Specialist',
+      status: 'active',
+      availableDays: ['Monday', 'Thursday', 'Friday'],
+      modes: ['in-person', 'outreach'],
+      slots: ['10:00 AM', '11:15 AM', '01:30 PM', '03:00 PM'],
+      createdAt: new Date('2026-08-01'),
+      updatedAt: new Date('2026-08-01'),
+    };
+
+    const doc14: DoctorEntity = {
+      id: 'doc-014',
+      userId: 'usr-doctor-014',
+      doctorId: 'DOC-DERM-9607',
+      name: 'Dr. Priya Shah',
+      speciality: 'Dermatology',
+      registrationNumber: 'MCI-MH-2016-44219',
+      hospitalId: phcChiplun.id,
+      designation: 'Clinical Dermatologist & Laser Specialist',
+      status: 'active',
+      availableDays: ['Monday', 'Tuesday', 'Thursday', 'Saturday'],
+      modes: ['in-person', 'outreach'],
+      slots: ['10:00 AM', '11:30 AM', '01:00 PM', '02:30 PM'],
+      createdAt: new Date('2026-08-01'),
+      updatedAt: new Date('2026-08-01'),
+    };
+
+    const doc15: DoctorEntity = {
+      id: 'doc-015',
+      userId: 'usr-doctor-015',
+      doctorId: 'DOC-ENT-9708',
+      name: 'Dr. Vikram Malhotra',
+      speciality: 'ENT',
+      registrationNumber: 'MCI-MH-2011-88123',
+      hospitalId: dhPune.id,
+      designation: 'Head & Neck Onco-Surgeon & Senior ENT Consultant',
+      status: 'active',
+      availableDays: ['Tuesday', 'Thursday', 'Saturday'],
+      modes: ['in-person', 'teleconsultation'],
+      slots: ['09:30 AM', '11:30 AM', '01:00 PM', '02:00 PM'],
+      createdAt: new Date('2026-08-01'),
+      updatedAt: new Date('2026-08-01'),
+    };
+
+    const doc16: DoctorEntity = {
+      id: 'doc-016',
+      userId: 'usr-doctor-016',
+      doctorId: 'DOC-OPHT-9809',
+      name: 'Dr. Pooja Sawant',
+      speciality: 'Ophthalmology',
+      registrationNumber: 'MCI-MH-2018-72134',
+      hospitalId: dhRatnagiri.id,
+      designation: 'Cataract & Refractive Surgeon & Eye Specialist',
+      status: 'active',
+      availableDays: ['Monday', 'Wednesday', 'Friday'],
+      modes: ['in-person', 'outreach'],
+      slots: ['09:00 AM', '10:30 AM', '12:00 PM', '01:00 PM'],
+      createdAt: new Date('2026-08-01'),
+      updatedAt: new Date('2026-08-01'),
+    };
+
+    const doc17: DoctorEntity = {
+      id: 'doc-017',
+      userId: 'usr-doctor-017',
+      doctorId: 'DOC-PULM-9910',
+      name: 'Dr. Sandeep Gokhale',
+      speciality: 'Pulmonology',
+      registrationNumber: 'MCI-MH-2013-66231',
+      hospitalId: dhRatnagiri.id,
+      designation: 'Chest Physician & Critical Care Specialist',
+      status: 'active',
+      availableDays: ['Tuesday', 'Thursday', 'Friday'],
+      modes: ['in-person', 'teleconsultation'],
+      slots: ['10:30 AM', '12:00 PM', '02:00 PM', '03:30 PM'],
+      createdAt: new Date('2026-08-01'),
+      updatedAt: new Date('2026-08-01'),
+    };
+
+    const doc18: DoctorEntity = {
+      id: 'doc-018',
+      userId: 'usr-doctor-018',
+      doctorId: 'DOC-PSYC-9911',
+      name: 'Dr. Meera Chougule',
+      speciality: 'Psychiatry',
+      registrationNumber: 'MCI-MH-2019-33211',
+      hospitalId: dhPune.id,
+      designation: 'Consultant Psychiatrist & Mental Health Specialist',
+      status: 'active',
+      availableDays: ['Wednesday', 'Friday', 'Saturday'],
+      modes: ['in-person', 'teleconsultation'],
+      slots: ['02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM'],
+      createdAt: new Date('2026-08-01'),
+      updatedAt: new Date('2026-08-01'),
+    };
+
+    const doc19: DoctorEntity = {
+      id: 'doc-019',
+      userId: 'usr-doctor-019',
+      doctorId: 'DOC-SURG-9912',
+      name: 'Dr. Nitin Kamble',
+      speciality: 'General Surgery',
+      registrationNumber: 'MCI-MH-2010-11234',
+      hospitalId: sdhSawantwadi.id,
+      designation: 'Senior Laparoscopic & General Surgeon',
+      status: 'active',
+      availableDays: ['Monday', 'Wednesday', 'Thursday'],
+      modes: ['in-person'],
+      slots: ['09:00 AM', '10:30 AM', '12:00 PM', '01:00 PM'],
+      createdAt: new Date('2026-08-01'),
+      updatedAt: new Date('2026-08-01'),
+    };
+
+    const doc20: DoctorEntity = {
+      id: 'doc-020',
+      userId: 'usr-doctor-020',
+      doctorId: 'DOC-ENDO-9913',
+      name: 'Dr. Deepa Shinde',
+      speciality: 'Endocrinology',
+      registrationNumber: 'MCI-MH-2015-88412',
+      hospitalId: dhRatnagiri.id,
+      designation: 'Diabetologist & Endocrinology Specialist',
+      status: 'active',
+      availableDays: ['Monday', 'Friday', 'Sunday'],
+      modes: ['in-person', 'teleconsultation'],
+      slots: ['10:00 AM', '11:30 AM', '01:00 PM', '02:00 PM'],
+      createdAt: new Date('2026-08-01'),
+      updatedAt: new Date('2026-08-01'),
+    };
+
+    this.doctors = [
+      doc1, doc2, doc3, doc4, doc5, doc6, doc7, doc8,
+      doc9, doc10, doc11, doc12, doc13, doc14, doc15, doc16, doc17, doc18, doc19, doc20,
+    ];
+
+    // 5. Specialist Outreach Schedules (14 Specialist Sessions)
     const outreach1: SpecialistOutreachEntity = {
       id: 'outreach-001',
       outreachId: 'OUT-MH-01',
@@ -488,6 +719,114 @@ export class DataStore {
       updatedAt: new Date('2026-08-10'),
     };
 
+    const outreach9: SpecialistOutreachEntity = {
+      id: 'outreach-009',
+      outreachId: 'OUT-MH-09',
+      doctorId: doc13.id,
+      hospitalId: phcKhed.id,
+      destinationPHC: 'PHC Khed',
+      speciality: 'Orthopedics',
+      date: '2026-09-04',
+      startTime: '10:00 AM',
+      endTime: '02:00 PM',
+      totalSlots: 20,
+      availableSlots: 11,
+      status: 'SCHEDULED',
+      mmuVehicleStatus: 'Operational',
+      createdAt: new Date('2026-08-10'),
+      updatedAt: new Date('2026-08-10'),
+    };
+
+    const outreach10: SpecialistOutreachEntity = {
+      id: 'outreach-010',
+      outreachId: 'OUT-MH-10',
+      doctorId: doc14.id,
+      hospitalId: phcChiplun.id,
+      destinationPHC: 'PHC Chiplun',
+      speciality: 'Dermatology',
+      date: '2026-09-05',
+      startTime: '10:00 AM',
+      endTime: '02:00 PM',
+      totalSlots: 18,
+      availableSlots: 9,
+      status: 'SCHEDULED',
+      mmuVehicleStatus: 'Operational',
+      createdAt: new Date('2026-08-10'),
+      updatedAt: new Date('2026-08-10'),
+    };
+
+    const outreach11: SpecialistOutreachEntity = {
+      id: 'outreach-011',
+      outreachId: 'OUT-MH-11',
+      doctorId: doc6.id,
+      hospitalId: dhRatnagiri.id,
+      destinationPHC: 'PHC Khed',
+      speciality: 'Orthopedics',
+      date: '2026-09-05',
+      startTime: '09:00 AM',
+      endTime: '01:00 PM',
+      totalSlots: 15,
+      availableSlots: 7,
+      status: 'SCHEDULED',
+      mmuVehicleStatus: 'Operational',
+      createdAt: new Date('2026-08-10'),
+      updatedAt: new Date('2026-08-10'),
+    };
+
+    const outreach12: SpecialistOutreachEntity = {
+      id: 'outreach-012',
+      outreachId: 'OUT-MH-12',
+      doctorId: doc16.id,
+      hospitalId: dhRatnagiri.id,
+      destinationPHC: 'PHC Khed',
+      speciality: 'Ophthalmology',
+      date: '2026-09-07',
+      startTime: '09:00 AM',
+      endTime: '01:00 PM',
+      totalSlots: 25,
+      availableSlots: 14,
+      status: 'SCHEDULED',
+      mmuVehicleStatus: 'Operational',
+      createdAt: new Date('2026-08-10'),
+      updatedAt: new Date('2026-08-10'),
+    };
+
+    const outreach13: SpecialistOutreachEntity = {
+      id: 'outreach-013',
+      outreachId: 'OUT-MH-13',
+      doctorId: doc9.id,
+      hospitalId: phcKhed.id,
+      destinationPHC: 'PHC Dapoli',
+      speciality: 'General Medicine',
+      date: '2026-09-08',
+      startTime: '09:30 AM',
+      endTime: '01:30 PM',
+      totalSlots: 20,
+      availableSlots: 12,
+      status: 'SCHEDULED',
+      mmuVehicleStatus: 'Operational',
+      createdAt: new Date('2026-08-10'),
+      updatedAt: new Date('2026-08-10'),
+    };
+
+    const outreach14: SpecialistOutreachEntity = {
+      id: 'outreach-014',
+      outreachId: 'OUT-MH-14',
+      doctorId: doc1.id,
+      hospitalId: dhRatnagiri.id,
+      destinationPHC: 'PHC Khed',
+      speciality: 'Cardiology',
+      date: '2026-09-11',
+      startTime: '09:30 AM',
+      endTime: '01:30 PM',
+      totalSlots: 24,
+      availableSlots: 10,
+      status: 'SCHEDULED',
+      mmuVehicleStatus: 'Operational',
+      createdAt: new Date('2026-08-10'),
+      updatedAt: new Date('2026-08-10'),
+    };
+
     this.outreachSchedules = [
       outreach1,
       outreach2,
@@ -497,6 +836,12 @@ export class DataStore {
       outreach6,
       outreach7,
       outreach8,
+      outreach9,
+      outreach10,
+      outreach11,
+      outreach12,
+      outreach13,
+      outreach14,
     ];
     this.specialistOutreaches = this.outreachSchedules;
 

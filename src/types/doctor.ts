@@ -16,6 +16,20 @@ export interface DoctorProfile {
   outreachAssignedPHCs: string[]; // ['PHC Khed', 'Sub-Centre Chiplun Rural', 'PHC Guhagar']
 }
 
+export interface DoctorListItem {
+  id: string;
+  name: string;
+  speciality: string;
+  hospitalName: string;
+  facility: string;
+  designation?: string;
+  qualification?: string;
+  availableDays: string[];
+  modes: Array<'in-person' | 'teleconsultation' | 'outreach'>;
+  slots: string[];
+  slotsByDay?: { [day: string]: Array<{ time: string; status: 'available' | 'occupied'; mode?: 'in-person' | 'teleconsultation' | 'outreach' }> };
+}
+
 export interface DoctorConsultationForm {
   appointmentId: string;
   patientId: string;

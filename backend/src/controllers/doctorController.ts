@@ -8,10 +8,16 @@ import { createUtcInstantFromIst, formatAppointmentTime, formatAppointmentDate }
 
 export const getAllDoctors = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { speciality } = req.query;
+    const { speciality, day, mode } = req.query;
     let list = [...dataStore.doctors];
     if (speciality) {
       list = list.filter((d) => d.speciality.toLowerCase().includes((speciality as string).toLowerCase()));
+    }
+    if (day) {
+      list = list.filter((d) => d.availableDays?.some((ad) => ad.toLowerCase() === (day as string).toLowerCase()));
+    }
+    if (mode) {
+      list = list.filter((d) => d.modes?.some((m) => m.toLowerCase() === (mode as string).toLowerCase()));
     }
     const enriched = list.map((doc) => {
       const facility = dataStore.facilities.find((f) => f.id === doc.hospitalId);

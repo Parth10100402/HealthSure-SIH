@@ -22,14 +22,20 @@
 
 import { patientService } from './patientService';
 import { resolveVoiceDate, resolveVoiceTime } from '../utils/voiceDateTimeResolver';
+import { mockDoctorsList } from '../data/doctorMockData';
 
 export interface DoctorInfo {
   id: string;
   name: string;
   speciality: string;
   hospitalName: string;
+  facility?: string;
   designation?: string;
+  qualification?: string;
   availableDays?: string[];
+  modes?: Array<'in-person' | 'teleconsultation' | 'outreach'>;
+  slots?: string[];
+  slotsByDay?: { [day: string]: Array<{ time: string; status: 'available' | 'occupied'; mode?: 'in-person' | 'teleconsultation' | 'outreach' }> };
 }
 
 export type VoiceLanguage = 'hi' | 'en';
@@ -80,16 +86,19 @@ export interface VoiceConversationState {
   history: VoiceConversationTurn[];
 }
 
-export const KNOWN_DOCTORS: DoctorInfo[] = [
-  { id: 'doc-001', name: 'Dr. Ananya Mehta', speciality: 'Cardiology', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Consultant Cardiologist', availableDays: ['Monday', 'Wednesday', 'Friday'] },
-  { id: 'doc-002', name: 'Dr. Rahul Verma', speciality: 'General Medicine', hospitalName: 'District Hospital Pune', designation: 'Consultant Physician', availableDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] },
-  { id: 'doc-003', name: 'Dr. Priya Nair', speciality: 'Gynecology', hospitalName: 'Sub-District Hospital Sawantwadi', designation: 'Maternal Health Specialist', availableDays: ['Tuesday', 'Wednesday', 'Saturday'] },
-  { id: 'doc-004', name: 'Dr. Arjun Kapoor', speciality: 'Pediatrics', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Pediatrician', availableDays: ['Monday', 'Wednesday', 'Thursday'] },
-  { id: 'doc-005', name: 'Dr. Neha Sharma', speciality: 'Dermatology', hospitalName: 'District Hospital Ratnagiri', designation: 'Consultant Dermatologist', availableDays: ['Wednesday', 'Friday'] },
-  { id: 'doc-006', name: 'Dr. Vivek Rao', speciality: 'Orthopedics', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Orthopedic Surgeon', availableDays: ['Tuesday', 'Wednesday', 'Saturday'] },
-  { id: 'doc-007', name: 'Dr. Kavita Joshi', speciality: 'ENT', hospitalName: 'Sub-District Hospital Sawantwadi', designation: 'Consultant ENT Specialist', availableDays: ['Monday', 'Wednesday', 'Friday'] },
-  { id: 'doc-008', name: 'Dr. Sameer Khan', speciality: 'Neurology', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Consultant Neurologist', availableDays: ['Wednesday', 'Thursday'] },
-];
+export const KNOWN_DOCTORS: DoctorInfo[] = mockDoctorsList.map((d) => ({
+  id: d.id,
+  name: d.name,
+  speciality: d.speciality,
+  hospitalName: d.hospitalName,
+  facility: d.facility,
+  designation: d.designation,
+  qualification: d.qualification,
+  availableDays: d.availableDays,
+  modes: d.modes,
+  slots: d.slots,
+  slotsByDay: d.slotsByDay,
+}));
 
 export const STANDARD_OPD_SLOTS = [
   '09:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM',
@@ -217,7 +226,10 @@ export class VoiceAgentService {
     }
 
     // 12. Teleconsultation Intent (Video call, online doctor, teleconsult)
-    if (/\b(video|teleconsult|teleconsultation|online doctor|call doctor|video call|doctor se baat)\b/i.test(lower)) {
+    if (
+      /\b(video|teleconsult|teleconsultation|online doctor|call doctor|video call|doctor se baat)\b/i.test(lower) &&
+      !/\b(kaun|who|available|uplabdh|milenge|availability|doctors? ki list)\b/i.test(lower)
+    ) {
       return await this.handleTeleconsultationQuery(lower);
     }
 
@@ -259,20 +271,21 @@ export class VoiceAgentService {
     // 20. Specific Existing Appointment Queries (Today, Tomorrow, Status, Token, Date/Time, Location)
     if (
       /\b(meri appointment|my appointment|next appointment|agli appointment|aaj ki appointment|kal ki appointment|appointments? status|token|kab hai|kis din hai|kis time|time kya hai|doctor kaun hai|kahan par hai|room number)\b/i.test(lower) &&
-      !lower.includes('book')
+      !lower.includes('book') &&
+      !lower.includes('slot')
     ) {
       return await this.handleSpecificAppointmentQuery(lower);
     }
 
-    // 21. Available Slots Discovery (Morning, Afternoon, Evening, Earliest, Doctor free check, or specific time/slot request)
+    // 21. Available Slots Discovery (When a doctor is selected or asking for slots for a doctor)
     const isBookingRequest = /\b(book|appointment lena|milna hai|dikhana hai|checkup karwana|fix karo|kar do|appointment chahiye)\b/i.test(lower) || this.state.intent === 'BOOK_APPOINTMENT';
 
-    if (
-      !isBookingRequest &&
-      ((/\b(slots?|free time|kab free|earliest|subah ka slot|shaam ka slot|dopahar ka slot|free hai kya|available time)\b/i.test(lower)) ||
-      /\b(shaam|subah|dopahar|morning|afternoon|evening)\b.*\b(appointment|slot|mileg[ia]|mil jayeg[ia])\b/i.test(lower) ||
-      (this.state.timeStr && (lower.includes('slot') || lower.includes('doctor') || lower.includes('appointment') || lower.includes('aas paas') || lower.includes('around') || lower.includes('baje') || lower.trim().length < 25)))
-    ) {
+    const isSlotQueryForDoctor =
+      Boolean(this.state.selectedDoctor) &&
+      (/\b(slots?|free time|kab free|earliest|subah ka slot|shaam ka slot|dopahar ka slot|free hai kya|available time|pehla slot|sabse pehla)\b/i.test(lower) ||
+        (Boolean(this.state.timeStr) && (lower.includes('slot') || lower.includes('aas paas') || lower.includes('baje'))));
+
+    if (!isBookingRequest && isSlotQueryForDoctor) {
       return await this.handleSlotDiscovery(lower);
     }
 
@@ -282,11 +295,19 @@ export class VoiceAgentService {
     }
 
     // 23. Doctor / Specialist Discovery Intent
-    if (
-      /\b(dr|doctors?|specialists?|specialt(y|ies)|cardiologist|physician|gynecologist|pediatrician|dermatologist|orthopedic|ent|neurologist|heart|dil|bukhar|skin|haddi|kaan|dimag|kaun kaun|who is available|available doctors)\b/i.test(lower) ||
-      (/\b(appointment|available|mileg[ia]|aayeng[ei]|kab mileng[ei]|kab aayeng[ei]|availability|uplabdh)\b/i.test(lower) && Boolean(this.state.selectedDoctor || this.state.dateDisplay || this.state.dateStr))
-    ) {
-      return await this.handleDoctorDiscovery();
+    const isDoctorDiscoveryQuery =
+      /\b(dr|doctors?|specialists?|specialt(y|ies)|cardiologist|physician|gynecologist|pediatrician|dermatologist|orthopedic|ent|neurologist|ophthalmologist|pulmonologist|psychiatrist|heart|dil|bukhar|skin|haddi|kaan|dimag|aankh|phephde|kaun kaun|who is available|available doctors)\b/i.test(lower) ||
+      (/\b(kaunse|kaun sa|kaun|who)\b.*\b(doctor|specialist|milenge|available|slots?)\b/i.test(lower)) ||
+      (/\b(appointment|available|mileg[ia]|aayeng[ei]|kab mileng[ei]|kab aayeng[ei]|availability|uplabdh|free)\b/i.test(lower) && Boolean(this.state.selectedDoctor || this.state.dateDisplay || this.state.dateStr || lower.includes('phc') || lower.includes('khed') || lower.includes('ratnagiri') || lower.includes('teleconsultation') || lower.includes('video') || lower.includes('weekend'))) ||
+      (/\b(11|10|9|09|12|1|2|3|4)\s*baje\b/i.test(lower) && (lower.includes('doctor') || lower.includes('khali') || lower.includes('slot') || lower.includes('kaun')));
+
+    if (isDoctorDiscoveryQuery) {
+      return await this.handleDoctorDiscovery(lower);
+    }
+
+    // 24. General Slot Discovery fallback
+    if (!isBookingRequest && (/\b(slots?|free time|kab free|earliest|subah ka slot|shaam ka slot|dopahar ka slot|available time)\b/i.test(lower))) {
+      return await this.handleSlotDiscovery(lower);
     }
 
     // Fallback: Intelligent conversational guidance
@@ -426,23 +447,83 @@ export class VoiceAgentService {
       return;
     }
 
-    // 4. Doctor and Specialty keywords
-    const doctorMappings: Array<{ name: string; id: string; spec: string; keywords: string[] }> = [
-      { name: 'Dr. Ananya Mehta', id: 'doc-001', spec: 'Cardiology', keywords: ['ananya', 'mehta', 'heart', 'dil', 'cardio', 'cardiology', 'cardiologist'] },
-      { name: 'Dr. Rahul Verma', id: 'doc-002', spec: 'General Medicine', keywords: ['rahul', 'verma', 'general physician', 'medicine', 'bukhar', 'fever', 'physician'] },
-      { name: 'Dr. Priya Nair', id: 'doc-003', spec: 'Gynecology', keywords: ['priya', 'nair', 'gynecology', 'gynaecology', 'gynecologist', 'mahila', 'pregnancy', 'delivery'] },
-      { name: 'Dr. Arjun Kapoor', id: 'doc-004', spec: 'Pediatrics', keywords: ['arjun', 'kapoor', 'pediatrics', 'pediatrician', 'bacche', 'baccho', 'bacho', 'bachha', 'baccha', 'child', 'children', 'kids'] },
-      { name: 'Dr. Neha Sharma', id: 'doc-005', spec: 'Dermatology', keywords: ['neha', 'sharma', 'dermatology', 'dermatologist', 'skin', 'chamdi', 'tvacha', 'allergy'] },
-      { name: 'Dr. Vivek Rao', id: 'doc-006', spec: 'Orthopedics', keywords: ['vivek', 'rao', 'orthopedics', 'orthopedic', 'ortho', 'haddi', 'bone', 'joint'] },
-      { name: 'Dr. Kavita Joshi', id: 'doc-007', spec: 'ENT', keywords: ['kavita', 'joshi', 'ent', 'kaan', 'naak', 'gala', 'ear', 'nose', 'throat'] },
-      { name: 'Dr. Sameer Khan', id: 'doc-008', spec: 'Neurology', keywords: ['sameer', 'khan', 'neurology', 'neurologist', 'neuro', 'dimag', 'brain', 'headache'] },
+    // 4. Doctor Name detection
+    const doctorMappings: Array<{ name: string; id: string; spec: string; facility: string; keywords: string[] }> = [
+      { name: 'Dr. Ananya Mehta', id: 'doc-001', spec: 'Cardiology', facility: 'District Hospital Ratnagiri', keywords: ['ananya', 'ananya mehta'] },
+      { name: 'Dr. Rahul Verma', id: 'doc-002', spec: 'General Medicine', facility: 'District Hospital Pune', keywords: ['rahul verma'] },
+      { name: 'Dr. Priya Nair', id: 'doc-003', spec: 'Gynecology', facility: 'Sub-District Hospital Sawantwadi', keywords: ['priya nair'] },
+      { name: 'Dr. Arjun Kapoor', id: 'doc-004', spec: 'Pediatrics', facility: 'District Hospital Ratnagiri', keywords: ['arjun', 'kapoor', 'arjun kapoor'] },
+      { name: 'Dr. Neha Sharma', id: 'doc-005', spec: 'Dermatology', facility: 'District Hospital Ratnagiri', keywords: ['neha', 'neha sharma'] },
+      { name: 'Dr. Vivek Rao', id: 'doc-006', spec: 'Orthopedics', facility: 'District Hospital Ratnagiri', keywords: ['vivek', 'rao', 'vivek rao'] },
+      { name: 'Dr. Kavita Joshi', id: 'doc-007', spec: 'ENT', facility: 'Sub-District Hospital Sawantwadi', keywords: ['kavita', 'joshi', 'kavita joshi'] },
+      { name: 'Dr. Sameer Khan', id: 'doc-008', spec: 'Neurology', facility: 'District Hospital Ratnagiri', keywords: ['sameer', 'khan', 'sameer khan'] },
+      { name: 'Dr. Rajesh Patil', id: 'doc-009', spec: 'General Medicine', facility: 'PHC Khed', keywords: ['rajesh', 'patil', 'rajesh patil'] },
+      { name: 'Dr. Sunita Kulkarni', id: 'doc-010', spec: 'Gynecology', facility: 'District Hospital Ratnagiri', keywords: ['sunita', 'kulkarni', 'sunita kulkarni'] },
+      { name: 'Dr. Amit Deshmukh', id: 'doc-011', spec: 'Cardiology', facility: 'District Hospital Pune', keywords: ['amit', 'deshmukh', 'amit deshmukh'] },
+      { name: 'Dr. Sneha Bhonsle', id: 'doc-012', spec: 'Pediatrics', facility: 'SDH Chiplun', keywords: ['sneha', 'bhonsle', 'sneha bhonsle'] },
+      { name: 'Dr. Rahul Shah', id: 'doc-013', spec: 'Orthopedics', facility: 'PHC Khed', keywords: ['rahul shah'] },
+      { name: 'Dr. Priya Shah', id: 'doc-014', spec: 'Dermatology', facility: 'City Hospital Chiplun', keywords: ['priya shah'] },
+      { name: 'Dr. Vikram Malhotra', id: 'doc-015', spec: 'ENT', facility: 'District Hospital Pune', keywords: ['vikram', 'malhotra', 'vikram malhotra'] },
+      { name: 'Dr. Pooja Sawant', id: 'doc-016', spec: 'Ophthalmology', facility: 'District Hospital Ratnagiri', keywords: ['pooja', 'sawant', 'pooja sawant'] },
+      { name: 'Dr. Sandeep Gokhale', id: 'doc-017', spec: 'Pulmonology', facility: 'District Hospital Ratnagiri', keywords: ['sandeep', 'gokhale', 'sandeep gokhale'] },
+      { name: 'Dr. Meera Chougule', id: 'doc-018', spec: 'Psychiatry', facility: 'District Hospital Pune', keywords: ['meera', 'chougule', 'meera chougule'] },
+      { name: 'Dr. Nitin Kamble', id: 'doc-019', spec: 'General Surgery', facility: 'Sub-District Hospital Sawantwadi', keywords: ['nitin', 'kamble', 'nitin kamble'] },
+      { name: 'Dr. Deepa Shinde', id: 'doc-020', spec: 'Endocrinology', facility: 'District Hospital Ratnagiri', keywords: ['deepa', 'shinde', 'deepa shinde'] },
     ];
 
-    for (const doc of doctorMappings) {
-      if (doc.keywords.some((kw) => lower.includes(kw))) {
-        this.state.selectedDoctor = doc.name;
-        this.state.doctorId = doc.id;
-        this.state.speciality = doc.spec;
+    let matchedDoc = doctorMappings.find((doc) => doc.keywords.some((kw) => lower.includes(kw)));
+    if (!matchedDoc) {
+      if (lower.includes('rahul') && !lower.includes('shah')) {
+        matchedDoc = doctorMappings.find((d) => d.id === 'doc-002');
+      } else if (lower.includes('priya') && !lower.includes('shah')) {
+        matchedDoc = doctorMappings.find((d) => d.id === 'doc-003');
+      }
+    }
+    if (matchedDoc) {
+      this.state.selectedDoctor = matchedDoc.name;
+      this.state.doctorId = matchedDoc.id;
+      this.state.speciality = matchedDoc.spec;
+      this.state.facility = matchedDoc.facility;
+    }
+
+    // 5. Specialty keywords
+    const specialtyMappings: Array<{ spec: string; keywords: string[] }> = [
+      { spec: 'Cardiology', keywords: ['cardio', 'cardiology', 'cardiologist', 'heart', 'dil'] },
+      { spec: 'General Medicine', keywords: ['general medicine', 'general physician', 'bukhar', 'fever', 'physician'] },
+      { spec: 'Gynecology', keywords: ['gynecology', 'gynaecology', 'gynecologist', 'gynaecologist', 'mahila', 'pregnancy', 'delivery'] },
+      { spec: 'Pediatrics', keywords: ['pediatrics', 'paediatrics', 'pediatrician', 'paediatrician', 'bacche', 'baccho', 'bacho', 'bachha', 'baccha', 'child', 'children', 'kids'] },
+      { spec: 'Dermatology', keywords: ['dermatology', 'dermatologist', 'skin', 'chamdi', 'tvacha', 'allergy'] },
+      { spec: 'Orthopedics', keywords: ['orthopedics', 'orthopaedics', 'orthopedic', 'ortho', 'haddi', 'bone', 'joint'] },
+      { spec: 'ENT', keywords: ['ent', 'kaan', 'naak', 'gala', 'ear', 'nose', 'throat'] },
+      { spec: 'Neurology', keywords: ['neurology', 'neurologist', 'neuro', 'dimag', 'brain', 'headache'] },
+      { spec: 'Ophthalmology', keywords: ['ophthalmology', 'ophthalmologist', 'eye', 'aankh', 'netra', 'drishti'] },
+      { spec: 'Pulmonology', keywords: ['pulmonology', 'pulmonologist', 'lungs', 'chest', 'saans', 'phephde'] },
+      { spec: 'Psychiatry', keywords: ['psychiatry', 'psychiatrist', 'mental health', 'manasik', 'depression', 'stress'] },
+      { spec: 'General Surgery', keywords: ['general surgery', 'surgeon', 'surgery', 'operation'] },
+      { spec: 'Endocrinology', keywords: ['endocrinology', 'endocrinologist', 'diabetes', 'sugar', 'thyroid'] },
+    ];
+
+    for (const sm of specialtyMappings) {
+      if (sm.keywords.some((kw) => lower.includes(kw))) {
+        this.state.speciality = sm.spec;
+        break;
+      }
+    }
+
+    // 6. Facility keywords
+    const facilityMappings: Array<{ facility: string; keywords: string[] }> = [
+      { facility: 'PHC Khed', keywords: ['khed', 'phc khed'] },
+      { facility: 'District Hospital Ratnagiri', keywords: ['ratnagiri', 'dh ratnagiri'] },
+      { facility: 'District Hospital Pune', keywords: ['pune', 'dh pune'] },
+      { facility: 'Sub-District Hospital Sawantwadi', keywords: ['sawantwadi', 'sdh sawantwadi'] },
+      { facility: 'SDH Chiplun', keywords: ['chiplun', 'sdh chiplun'] },
+      { facility: 'PHC Dapoli', keywords: ['dapoli', 'phc dapoli'] },
+      { facility: 'PHC Guhagar', keywords: ['guhagar', 'phc guhagar'] },
+    ];
+
+    for (const fm of facilityMappings) {
+      if (fm.keywords.some((kw) => lower.includes(kw))) {
+        this.state.facility = fm.facility;
         break;
       }
     }
@@ -450,38 +531,134 @@ export class VoiceAgentService {
 
   // ── Doctor Discovery ─────────────────────────────────────────────────────
 
-  private async handleDoctorDiscovery() {
+  private async handleDoctorDiscovery(lowerQuery: string = '') {
     const doctors = await patientService.getDoctors();
-    let matched = doctors;
+    let matched = [...doctors];
 
+    // 1. Specialty filtering
     if (this.state.speciality) {
-      matched = doctors.filter((d) => d.speciality.toLowerCase().includes(this.state.speciality!.toLowerCase()));
+      matched = matched.filter((d) => d.speciality.toLowerCase().includes(this.state.speciality!.toLowerCase()));
     }
 
+    // 2. Day filtering
+    let targetDay = '';
     if (this.state.dateDisplay) {
-      const day = this.state.dateDisplay.replace('Next ', '').trim();
-      const dayMatches = matched.filter((d) => {
-        const known = KNOWN_DOCTORS.find((kd) => kd.id === d.id);
-        return known?.availableDays?.includes(day);
-      });
-      if (dayMatches.length > 0) {
-        matched = dayMatches;
-      }
+      targetDay = this.state.dateDisplay.replace('Next ', '').replace(' (Weekend)', '').trim();
+    } else if (lowerQuery.includes('friday') || lowerQuery.includes('shukrawar') || lowerQuery.includes('shukr')) {
+      targetDay = 'Friday';
+    } else if (lowerQuery.includes('saturday') || lowerQuery.includes('shaniwar') || lowerQuery.includes('shan')) {
+      targetDay = 'Saturday';
+    } else if (lowerQuery.includes('monday') || lowerQuery.includes('somwar') || lowerQuery.includes('som')) {
+      targetDay = 'Monday';
+    } else if (lowerQuery.includes('wednesday') || lowerQuery.includes('budhwar') || lowerQuery.includes('budh')) {
+      targetDay = 'Wednesday';
+    } else if (lowerQuery.includes('tuesday') || lowerQuery.includes('mangalwar')) {
+      targetDay = 'Tuesday';
+    } else if (lowerQuery.includes('thursday') || lowerQuery.includes('guruwar')) {
+      targetDay = 'Thursday';
+    } else if (lowerQuery.includes('sunday') || lowerQuery.includes('raviwar') || lowerQuery.includes('itwar')) {
+      targetDay = 'Sunday';
     }
 
-    this.state.candidateDoctors = matched.map((m) => {
-      const known = KNOWN_DOCTORS.find((kd) => kd.id === m.id);
-      return { ...m, availableDays: known?.availableDays || ['Monday', 'Wednesday', 'Friday'] };
-    });
+    const isWeekend = lowerQuery.includes('weekend') || this.state.dateDisplay?.includes('Weekend');
+    if (isWeekend) {
+      matched = matched.filter((d) => d.availableDays.includes('Saturday') || d.availableDays.includes('Sunday'));
+    } else if (targetDay && targetDay !== 'Today' && targetDay !== 'Tomorrow') {
+      matched = matched.filter((d) => d.availableDays.some((ad) => ad.toLowerCase().includes(targetDay.toLowerCase())));
+    }
 
-    const dayLabel = this.state.dateDisplay || (this.language === 'hi' ? 'iss hafte' : 'this week');
+    // 3. Facility filtering
+    if (this.state.facility) {
+      matched = matched.filter((d) => 
+        (d.facility && d.facility.toLowerCase().includes(this.state.facility!.toLowerCase())) ||
+        (d.hospitalName && d.hospitalName.toLowerCase().includes(this.state.facility!.toLowerCase()))
+      );
+    }
+
+    // 4. Mode filtering (teleconsultation vs outreach vs in-person)
+    const isTele = lowerQuery.includes('teleconsultation') || lowerQuery.includes('video') || lowerQuery.includes('online');
+    if (isTele) {
+      matched = matched.filter((d) => d.modes.includes('teleconsultation'));
+    }
+
+    // 5. Time of Day filtering (morning vs evening vs 11 baje vs earliest)
+    const isMorning = lowerQuery.includes('morning') || lowerQuery.includes('subah');
+    const isEvening = lowerQuery.includes('evening') || lowerQuery.includes('shaam') || lowerQuery.includes('sham');
+    const isEarliest = lowerQuery.includes('earliest') || lowerQuery.includes('sabse pehle') || lowerQuery.includes('sabse pehla');
+
+    if (isMorning) {
+      matched = matched.filter((d) => d.slots.some((s) => s.includes('AM') || s.startsWith('09:') || s.startsWith('10:') || s.startsWith('11:')));
+    } else if (isEvening) {
+      matched = matched.filter((d) => d.slots.some((s) => s.startsWith('03:') || s.startsWith('04:')));
+    } else if (lowerQuery.includes('11 baje') || lowerQuery.includes('11:00') || lowerQuery.includes('11 am')) {
+      matched = matched.filter((d) => d.slots.some((s) => s.startsWith('11:')));
+    }
+
+    // Earliest doctor query (e.g. "Friday ko sabse pehle kaunsa doctor available hai?")
+    if (isEarliest) {
+      const earliestDocs = matched.filter((d) => d.slots.some((s) => s.startsWith('09:00')));
+      const targetDocs = earliestDocs.length > 0 ? earliestDocs : matched.slice(0, 2);
+      const docNames = targetDocs.map((d) => d.name).join(' aur ');
+      const earliestTime = targetDocs[0]?.slots[0] || '09:00 AM';
+      const dayName = targetDay || 'Friday';
+
+      const spoken = this.language === 'hi'
+        ? `${dayName} ko sabse pehle ${docNames} subah ${earliestTime} par uplabdh hain. Kya aap ${earliestTime} ka slot book karna chahte hain?`
+        : `On ${dayName}, the earliest available doctors are ${docNames} at ${earliestTime}. Would you like to book a slot?`;
+
+      this.state.candidateDoctors = targetDocs.map((d) => ({ ...d }));
+      const card = { type: 'DOCTOR_LIST' as const, data: { doctors: targetDocs } };
+      this.recordAgentResponse(spoken, card);
+      return { spokenResponse: spoken, actionCard: card, state: this.getState() };
+    }
+
+    this.state.candidateDoctors = matched.map((d) => ({ ...d }));
+
+    const dayLabel = isWeekend ? 'weekend par' : targetDay ? (targetDay.startsWith('Next') ? targetDay : `${targetDay}`) : (this.language === 'hi' ? 'iss hafte' : 'this week');
     const docNames = matched.slice(0, 3).map((d) => `${d.name} (${d.speciality})`).join(', ');
 
     let spoken = '';
-    if (this.language === 'hi') {
-      spoken = `${dayLabel} hamare paas ${matched.length} doctors uplabdh hain: ${docNames}. Aap appointments ke slots dekh sakte hain ya book kar sakte hain. Kya aap inme se kisi ke saath appointment book karna chahte hain?`;
+    if (this.state.facility) {
+      spoken = this.language === 'hi'
+        ? `${this.state.facility} mein ${dayLabel} ko ${matched.length} doctors uplabdh hain: ${matched.map((d) => `${d.name} (${d.speciality})`).join(' aur ')}. Aap kinke saath appointment chahte hain?`
+        : `At ${this.state.facility} on ${dayLabel}, ${matched.length} doctors are available: ${matched.map((d) => `${d.name} (${d.speciality})`).join(' and ')}. Which doctor would you like to book with?`;
+    } else if (isTele) {
+      spoken = this.language === 'hi'
+        ? `${dayLabel} ko teleconsultation ke liye hamare paas ${matched.length} doctors uplabdh hain, jinme ${docNames} shamil hain. Kya aap video consultation book karna chahte hain?`
+        : `On ${dayLabel}, we have ${matched.length} doctors available for teleconsultation, including ${docNames}. Would you like to book a video session?`;
+    } else if (isWeekend && this.state.speciality) {
+      const doc = matched[0];
+      spoken = this.language === 'hi'
+        ? `Haan, weekend par ${doc.name} (${doc.speciality}) ${doc.availableDays.join(' aur ')} ko ${doc.facility || doc.hospitalName} mein uplabdh hain. Kya aap inke saath appointment book karna chahte hain?`
+        : `Yes, on weekends ${doc.name} (${doc.speciality}) is available on ${doc.availableDays.join(' and ')} at ${doc.facility || doc.hospitalName}. Would you like to book an appointment?`;
+    } else if (this.state.speciality) {
+      if (matched.length === 1) {
+        const d = matched[0];
+        const slotPreview = d.slots.slice(0, 3).join(', ');
+        spoken = this.language === 'hi'
+          ? `Haan, ${dayLabel} ko ${d.name} (${d.speciality}) ${d.facility || d.hospitalName} mein uplabdh hain. Unke paas ${slotPreview} ke slots uplabdh hain. Kya main slot book kar doon?`
+          : `Yes, on ${dayLabel} ${d.name} (${d.speciality}) is available at ${d.facility || d.hospitalName}. Slots include ${slotPreview}. Would you like to book?`;
+      } else {
+        spoken = this.language === 'hi'
+          ? `${dayLabel} ko ${this.state.speciality} ke ${matched.length} doctors uplabdh hain: ${matched.map((d) => `${d.name} (${d.hospitalName || d.facility})`).join(' aur ')}. Aap kinke saath appointment chahte hain?`
+          : `On ${dayLabel}, ${matched.length} ${this.state.speciality} specialists are available: ${matched.map((d) => `${d.name} (${d.hospitalName || d.facility})`).join(' and ')}. Who would you like to see?`;
+      }
+    } else if (lowerQuery.includes('11 baje') || lowerQuery.includes('11:00') || lowerQuery.includes('11 am')) {
+      spoken = this.language === 'hi'
+        ? `11:00 AM ke slot ke liye hamare paas ${matched.slice(0, 3).map((d) => `${d.name} (${d.speciality})`).join(', ')} uplabdh hain. Aap kinke saath appointment chahte hain?`
+        : `For the 11:00 AM slot, ${matched.slice(0, 3).map((d) => `${d.name} (${d.speciality})`).join(', ')} are available. Who would you prefer?`;
+    } else if (isMorning) {
+      spoken = this.language === 'hi'
+        ? `${dayLabel} subah hamare paas ${matched.length} doctors uplabdh hain: ${docNames} aur anya. Sabhi ke subah ke slots available hain. Aap kinke saath milna chahte hain?`
+        : `On ${dayLabel} morning, we have ${matched.length} doctors available: ${docNames} and more. Who would you like to see?`;
+    } else if (isEvening) {
+      spoken = this.language === 'hi'
+        ? `${dayLabel} shaam ko hamare paas ${matched.length} doctors uplabdh hain: ${docNames} aur anya. Inke shaam ke slots uplabdh hain.`
+        : `On ${dayLabel} evening, we have ${matched.length} doctors available: ${docNames} and others with evening slots.`;
     } else {
-      spoken = `On ${dayLabel}, we have ${matched.length} doctors available: ${docNames}. You can view appointment slots or book now. Would you like to book an appointment with one of them?`;
+      spoken = this.language === 'hi'
+        ? `${dayLabel} hamare paas ${matched.length} doctors uplabdh hain: ${docNames}. Aap appointments ke slots dekh sakte hain ya book kar sakte hain. Kya aap inme se kisi ke saath appointment book karna chahte hain?`
+        : `On ${dayLabel}, we have ${matched.length} doctors available: ${docNames}. You can view appointment slots or book now. Would you like to book an appointment with one of them?`;
     }
 
     const card = {
@@ -497,23 +674,44 @@ export class VoiceAgentService {
 
   private async handleSlotDiscovery(lower: string) {
     const doctorName = this.state.selectedDoctor || 'Dr. Ananya Mehta';
-    const dayLabel = this.state.dateDisplay || 'Wednesday';
+    const dayLabel = this.state.dateDisplay?.replace('Next ', '').replace(' (Weekend)', '').trim() || 'Wednesday';
 
-    let slots = [...STANDARD_OPD_SLOTS];
+    // Find the doctor in mockDoctorsList
+    const doc = mockDoctorsList.find((d) => d.name.toLowerCase() === doctorName.toLowerCase() || d.id === this.state.doctorId);
+    const daySlots = doc?.slotsByDay?.[dayLabel] || (doc?.slotsByDay ? Object.values(doc.slotsByDay)[0] : null);
+
+    let slots: string[] = [];
+    let occupiedSlots: string[] = [];
+
+    if (daySlots && daySlots.length > 0) {
+      slots = daySlots.filter((s) => s.status === 'available').map((s) => s.time);
+      occupiedSlots = daySlots.filter((s) => s.status === 'occupied').map((s) => s.time);
+    } else {
+      slots = doc?.slots || [...STANDARD_OPD_SLOTS];
+    }
+
     if (lower.includes('subah') || lower.includes('morning')) {
       slots = slots.filter((s) => s.includes('AM'));
     } else if (lower.includes('dopahar') || lower.includes('afternoon')) {
-      slots = slots.filter((s) => s.includes('02:') || s.includes('03:'));
+      slots = slots.filter((s) => s.includes('01:') || s.includes('02:') || s.includes('03:') || s.includes('12:'));
     } else if (lower.includes('shaam') || lower.includes('evening')) {
-      slots = slots.filter((s) => s.includes('04:'));
+      slots = slots.filter((s) => s.includes('04:') || s.includes('05:'));
     }
 
     if (this.state.timeStr) {
-      const isAvail = slots.includes(this.state.timeStr) || STANDARD_OPD_SLOTS.includes(this.state.timeStr);
+      const isAvail = slots.includes(this.state.timeStr);
+      const isOccupied = occupiedSlots.includes(this.state.timeStr);
+
       if (isAvail) {
         const spoken = this.language === 'hi'
           ? `${doctorName} ke liye ${dayLabel} ko ${this.state.timeStr} ka slot uplabdh hai. Hamare paas kul ${slots.length} slots uplabdh hain. Kya aap ise book karna chahte hain?`
           : `For ${doctorName} on ${dayLabel}, the ${this.state.timeStr} slot is available among ${slots.length} slots. Would you like to book it?`;
+        this.recordAgentResponse(spoken);
+        return { spokenResponse: spoken, state: this.getState() };
+      } else if (isOccupied) {
+        const spoken = this.language === 'hi'
+          ? `${doctorName} ke liye ${dayLabel} ko ${this.state.timeStr} ka slot occupied hai. Available slots hain: ${slots.slice(0, 3).join(', ')}. Kaunsa samay chahenge?`
+          : `The ${this.state.timeStr} slot for ${doctorName} on ${dayLabel} is occupied. Available slots are: ${slots.slice(0, 3).join(', ')}. Which time would you prefer?`;
         this.recordAgentResponse(spoken);
         return { spokenResponse: spoken, state: this.getState() };
       } else {
@@ -525,8 +723,8 @@ export class VoiceAgentService {
       }
     }
 
-    if (lower.includes('earliest') || lower.includes('pehla slot')) {
-      const earliest = slots[0];
+    if (lower.includes('earliest') || lower.includes('pehla slot') || lower.includes('sabse pehla')) {
+      const earliest = slots[0] || (doc?.slots ? doc.slots[0] : '09:00 AM');
       const spoken = this.language === 'hi'
         ? `${doctorName} ke paas sabse pehla slot ${dayLabel} ko subah ${earliest} ka hai. Kya main ise book kar doon?`
         : `The earliest available slot for ${doctorName} on ${dayLabel} is at ${earliest}. Should I book it?`;
@@ -535,10 +733,11 @@ export class VoiceAgentService {
       return { spokenResponse: spoken, state: this.getState() };
     }
 
-    const slotListStr = slots.slice(0, 4).join(', ');
+    const slotListStr = slots.join(', ');
+    const occupiedNote = occupiedSlots.length > 0 ? ` (${occupiedSlots.join(', ')} ka slot occupied hai)` : '';
     const spoken = this.language === 'hi'
-      ? `${doctorName} ke liye ${dayLabel} ko ${slots.length} slots uplabdh hain: ${slotListStr}. Aap kaunsa samay chahte hain?`
-      : `For ${doctorName} on ${dayLabel}, ${slots.length} slots are available: ${slotListStr}. Which time would you prefer?`;
+      ? `${doctorName} ke ${dayLabel} ko uplabdh slots hain: ${slotListStr}.${occupiedNote} Aap kaunsa samay chahte hain?`
+      : `For ${doctorName} on ${dayLabel}, available slots are: ${slotListStr}.${occupiedNote} Which time would you prefer?`;
 
     this.recordAgentResponse(spoken);
     return { spokenResponse: spoken, state: this.getState() };
@@ -629,9 +828,11 @@ export class VoiceAgentService {
 
     // 1. Missing Doctor?
     if (!this.state.selectedDoctor) {
+      const dayAndTime = this.state.dateDisplay ? ` ${this.state.dateDisplay} ko` : '';
+      const timeStr = this.state.timeStr ? ` ${this.state.timeStr} par` : '';
       const spoken = this.language === 'hi'
-        ? 'Aap kis doctor ya speciality ke saath appointment book karna chahte hain? Jaise: Dr. Ananya Mehta (Cardiology) ya Dr. Rahul Verma (General Medicine)?'
-        : 'Which doctor or speciality would you like to consult? For example: Dr. Ananya Mehta (Cardiology) or Dr. Rahul Verma (General Medicine)?';
+        ? `Aap${dayAndTime}${timeStr} kis doctor ya speciality ke saath appointment book karna chahte hain? Jaise: Dr. Rahul Verma (General Medicine) ya Dr. Vivek Rao (Orthopedics)?`
+        : `Which doctor or speciality would you like to consult${dayAndTime}${timeStr}? For example: Dr. Rahul Verma (General Medicine) or Dr. Vivek Rao (Orthopedics)?`;
       this.recordAgentResponse(spoken);
       return { spokenResponse: spoken, state: this.getState() };
     }
@@ -668,8 +869,12 @@ export class VoiceAgentService {
     this.state.pendingAction = 'BOOK_APPOINTMENT';
     this.state.awaitingConfirmation = true;
 
+    const timePeriodLabel = this.state.timeStr.includes('PM')
+      ? (parseInt(this.state.timeStr, 10) >= 4 ? 'shaam' : 'dopahar')
+      : 'subah';
+
     const spoken = this.language === 'hi'
-      ? `Maine ${this.state.selectedDoctor} ke saath ${this.state.dateDisplay || this.state.dateStr} ko subah ${this.state.timeStr} ki appointment taiyar kar li hai. Kya main ise book kar doon? Haan ya Naa bolein.`
+      ? `Maine ${this.state.selectedDoctor} ke saath ${this.state.dateDisplay || this.state.dateStr} ko ${timePeriodLabel} ${this.state.timeStr} ki appointment taiyar kar li hai. Kya main ise book kar doon? Haan ya Naa bolein.`
       : `I have prepared an appointment with ${this.state.selectedDoctor} on ${this.state.dateDisplay || this.state.dateStr} at ${this.state.timeStr}. Should I confirm and book this now? Please say Yes or No.`;
 
     const card = {
@@ -769,7 +974,7 @@ export class VoiceAgentService {
 
   // ── Specialist Outreach Camps ────────────────────────────────────────────
 
-  private async handleOutreachQuery(_lower?: string) {
+  private async handleOutreachQuery(lower: string = '') {
     const outreachList = await patientService.getOutreachEvents();
     if (outreachList.length === 0) {
       const spoken = this.language === 'hi'
@@ -779,14 +984,28 @@ export class VoiceAgentService {
       return { spokenResponse: spoken, state: this.getState() };
     }
 
-    const nextCamp = outreachList[0];
+    let targetCamp = outreachList[0];
+    if (lower.includes('saturday') || lower.includes('shaniwar') || this.state.dateDisplay?.includes('Saturday')) {
+      const satCamp = outreachList.find((c) => c.date.toLowerCase().includes('saturday') || c.date.toLowerCase().includes('sat') || c.id.includes('SAT'));
+      if (satCamp) targetCamp = satCamp;
+    } else if (lower.includes('friday') || lower.includes('shukrawar') || this.state.dateDisplay?.includes('Friday')) {
+      const friCamp = outreachList.find((c) => c.date.toLowerCase().includes('friday') || c.date.toLowerCase().includes('fri') || c.id.includes('FRI'));
+      if (friCamp) targetCamp = friCamp;
+    }
+
+    const dayPrefix = targetCamp.date.toLowerCase().includes('saturday') || targetCamp.id.includes('SAT')
+      ? 'Saturday ko'
+      : targetCamp.date.toLowerCase().includes('friday') || targetCamp.id.includes('FRI')
+      ? 'Friday ko'
+      : `${targetCamp.date} ko`;
+
     const spoken = this.language === 'hi'
-      ? `Agla Specialist Outreach Camp ${nextCamp.date} ko ${nextCamp.outreachLocation} mein aayega. Doctor: ${nextCamp.doctorName} (${nextCamp.speciality}), ${nextCamp.availableSlots} slots uplabdh hain.`
-      : `Next Specialist Outreach Camp is on ${nextCamp.date} at ${nextCamp.outreachLocation} by ${nextCamp.doctorName} (${nextCamp.speciality}). ${nextCamp.availableSlots} slots available.`;
+      ? `${dayPrefix} Specialist Outreach Camp ${targetCamp.outreachLocation} mein aayega. Doctor: ${targetCamp.doctorName} (${targetCamp.speciality}), ${targetCamp.availableSlots} slots uplabdh hain.`
+      : `Specialist Outreach Camp is on ${targetCamp.date} at ${targetCamp.outreachLocation} by ${targetCamp.doctorName} (${targetCamp.speciality}). ${targetCamp.availableSlots} slots available.`;
 
     const card = {
       type: 'OUTREACH_LIST' as const,
-      data: { outreach: outreachList.slice(0, 3) },
+      data: { outreach: [targetCamp, ...outreachList.filter((c) => c.id !== targetCamp.id)].slice(0, 3) },
     };
 
     this.recordAgentResponse(spoken, card);

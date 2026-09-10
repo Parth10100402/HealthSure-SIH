@@ -25,6 +25,9 @@ import {
   mockNotifications,
 } from '../data/patientMockData';
 
+import type { DoctorListItem } from '../types/doctor';
+import { mockDoctorsList } from '../data/doctorMockData';
+
 import { HEALTHSURE_IVR_NUMBER } from '../config/constants';
 import { getStoredToken } from './authService';
 
@@ -84,30 +87,52 @@ export const patientService = {
     return { ...mockPatientProfile };
   },
 
-  async getDoctors(speciality?: string): Promise<Array<{ id: string; name: string; speciality: string; hospitalName: string; designation?: string }>> {
+  async getDoctors(speciality?: string, day?: string, mode?: string): Promise<DoctorListItem[]> {
     try {
-      const url = speciality ? `${API_BASE_URL}/doctors?speciality=${encodeURIComponent(speciality)}` : `${API_BASE_URL}/doctors`;
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const params = new URLSearchParams();
+      if (speciality) params.append('speciality', speciality);
+      if (day) params.append('day', day);
+      if (mode) params.append('mode', mode);
+      const queryStr = params.toString() ? `?${params.toString()}` : '';
+      const res = await fetch(`${API_BASE_URL}/doctors${queryStr}`, { headers: getAuthHeaders() });
       if (res.ok) {
         const json = await res.json();
-        if (json.success && Array.isArray(json.data)) {
-          return json.data;
+        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+          return json.data.map((d: any) => {
+            const matchedMock = mockDoctorsList.find((m) => m.id === d.id || m.name.toLowerCase() === d.name.toLowerCase());
+            return {
+              id: d.id,
+              name: d.name,
+              speciality: d.speciality,
+              hospitalName: d.hospitalName || d.facility || matchedMock?.hospitalName || 'District Hospital Ratnagiri',
+              facility: d.facility || d.hospitalName || matchedMock?.facility || 'District Hospital Ratnagiri',
+              designation: d.designation || matchedMock?.designation,
+              qualification: d.qualification || matchedMock?.qualification,
+              availableDays: d.availableDays || matchedMock?.availableDays || ['Monday', 'Wednesday', 'Friday'],
+              modes: d.modes || matchedMock?.modes || ['in-person', 'teleconsultation'],
+              slots: d.slots || matchedMock?.slots || ['10:00 AM', '11:00 AM', '02:00 PM', '04:00 PM'],
+              slotsByDay: matchedMock?.slotsByDay,
+            };
+          });
         }
       }
     } catch {
-      // Fallback
+      // Fallback to local mock data
     }
-    // Fallback static list based on mock outreach & specialists
-    return [
-      { id: 'doc-001', name: 'Dr. Ananya Mehta', speciality: 'Cardiology', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Consultant Cardiologist' },
-      { id: 'doc-002', name: 'Dr. Rahul Verma', speciality: 'General Medicine', hospitalName: 'District Hospital Pune', designation: 'Consultant Physician' },
-      { id: 'doc-003', name: 'Dr. Priya Nair', speciality: 'Gynecology', hospitalName: 'Sub-District Hospital Sawantwadi', designation: 'Maternal Health Specialist' },
-      { id: 'doc-004', name: 'Dr. Arjun Kapoor', speciality: 'Pediatrics', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Pediatrician' },
-      { id: 'doc-005', name: 'Dr. Neha Sharma', speciality: 'Dermatology', hospitalName: 'District Hospital Ratnagiri', designation: 'Consultant Dermatologist' },
-      { id: 'doc-006', name: 'Dr. Vivek Rao', speciality: 'Orthopedics', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Orthopedic Surgeon' },
-      { id: 'doc-007', name: 'Dr. Kavita Joshi', speciality: 'ENT', hospitalName: 'Sub-District Hospital Sawantwadi', designation: 'Consultant ENT Specialist' },
-      { id: 'doc-008', name: 'Dr. Sameer Khan', speciality: 'Neurology', hospitalName: 'District Hospital Ratnagiri', designation: 'Senior Consultant Neurologist' },
-    ].filter((d) => !speciality || d.speciality.toLowerCase().includes(speciality.toLowerCase()));
+    let list = [...mockDoctorsList];
+    if (speciality) {
+      const s = speciality.toLowerCase();
+      list = list.filter((d) => d.speciality.toLowerCase().includes(s));
+    }
+    if (day) {
+      const targetDay = day.toLowerCase();
+      list = list.filter((doc) => doc.availableDays.some((dayName) => dayName.toLowerCase() === targetDay || dayName.toLowerCase().startsWith(targetDay.slice(0, 3))));
+    }
+    if (mode) {
+      const targetMode = mode.toLowerCase();
+      list = list.filter((doc) => doc.modes.some((mod) => mod.toLowerCase().includes(targetMode)));
+    }
+    return list;
   },
 
   async getAppointments(): Promise<Appointment[]> {

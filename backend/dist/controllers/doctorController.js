@@ -3,10 +3,16 @@ import { dataStore } from '../db/store.js';
 import { createUtcInstantFromIst, formatAppointmentTime, formatAppointmentDate } from '../utils/dateTime.js';
 export const getAllDoctors = async (req, res, next) => {
     try {
-        const { speciality } = req.query;
+        const { speciality, day, mode } = req.query;
         let list = [...dataStore.doctors];
         if (speciality) {
             list = list.filter((d) => d.speciality.toLowerCase().includes(speciality.toLowerCase()));
+        }
+        if (day) {
+            list = list.filter((d) => d.availableDays?.some((ad) => ad.toLowerCase() === day.toLowerCase()));
+        }
+        if (mode) {
+            list = list.filter((d) => d.modes?.some((m) => m.toLowerCase() === mode.toLowerCase()));
         }
         const enriched = list.map((doc) => {
             const facility = dataStore.facilities.find((f) => f.id === doc.hospitalId);

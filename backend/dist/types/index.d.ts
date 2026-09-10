@@ -79,6 +79,9 @@ export interface DoctorEntity {
     hospitalId: string;
     designation?: string;
     status: string;
+    availableDays?: string[];
+    modes?: string[];
+    slots?: string[];
     createdAt: Date;
     updatedAt: Date;
 }
