@@ -20,8 +20,6 @@ import { mockPatientProfile } from '../../data/patientMockData';
 import { patientService } from '../../services/patientService';
 import type { Appointment } from '../../types/patient';
 import { AppointmentBookingModal } from '../../components/patient/AppointmentCard';
-import { VoiceIVRModal } from '../../components/patient/VoiceIVRModal';
-import { VoiceAssistantModal } from '../../components/patient/VoiceAssistantModal';
 import { CallHealthSureCard } from '../../components/patient/CallHealthSureCard';
 
 export const PatientOverviewPage: React.FC = () => {
@@ -29,8 +27,6 @@ export const PatientOverviewPage: React.FC = () => {
   const t = useTranslation();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
-  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
-  const [voiceAssistantOpen, setVoiceAssistantOpen] = useState(false);
 
   const patientName = user?.fullName || mockPatientProfile.fullName;
   const patientId = (user as any)?.patientId || user?.id || mockPatientProfile.id;
@@ -68,7 +64,7 @@ export const PatientOverviewPage: React.FC = () => {
           <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 flex-wrap">
             <button
               type="button"
-              onClick={() => setVoiceAssistantOpen(true)}
+              onClick={() => window.dispatchEvent(new CustomEvent('healthsure:open-voice-assistant'))}
               className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white text-[#087F6D] hover:bg-[#EAF7F2] px-4 py-2.5 text-xs font-bold transition-all shadow-md cursor-pointer"
             >
               <Mic className="w-4 h-4 text-[#087F6D] animate-pulse" />
@@ -77,7 +73,7 @@ export const PatientOverviewPage: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => setVoiceModalOpen(true)}
+              onClick={() => window.dispatchEvent(new CustomEvent('healthsure:open-voice-ivr'))}
               className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white/15 hover:bg-white/25 border border-white/30 px-3.5 py-2.5 text-xs font-bold text-white transition-all cursor-pointer"
             >
               <PhoneCall className="w-4 h-4 text-[#4FD1C5]" />
@@ -217,18 +213,6 @@ export const PatientOverviewPage: React.FC = () => {
         onBooked={() => {
           patientService.getAppointments().then(setAppointments);
         }}
-      />
-
-      {/* HealthSure Voice Modal */}
-      <VoiceIVRModal
-        isOpen={voiceModalOpen}
-        onClose={() => setVoiceModalOpen(false)}
-      />
-
-      {/* HealthSure Voice Assistant Modal */}
-      <VoiceAssistantModal
-        isOpen={voiceAssistantOpen}
-        onClose={() => setVoiceAssistantOpen(false)}
       />
     </div>
   );

@@ -1,7 +1,7 @@
 // HealthSure — Patient Portal Master Layout
 // frontend/src/components/patient/PatientLayout.tsx
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { PatientSidebar } from './PatientSidebar';
 import { PatientHeader } from './PatientHeader';
@@ -15,6 +15,17 @@ export const PatientLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [voiceIVROpen, setVoiceIVROpen] = useState(false);
   const [voiceAssistantOpen, setVoiceAssistantOpen] = useState(false);
+
+  useEffect(() => {
+    const handleOpenAssistant = () => setVoiceAssistantOpen(true);
+    const handleOpenIVR = () => setVoiceIVROpen(true);
+    window.addEventListener('healthsure:open-voice-assistant', handleOpenAssistant);
+    window.addEventListener('healthsure:open-voice-ivr', handleOpenIVR);
+    return () => {
+      window.removeEventListener('healthsure:open-voice-assistant', handleOpenAssistant);
+      window.removeEventListener('healthsure:open-voice-ivr', handleOpenIVR);
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#F5F9F7] dark:bg-[#051818] text-[#17324D] dark:text-[#E2EEF4] flex flex-col font-sans transition-colors duration-150">
@@ -73,7 +84,7 @@ export const PatientLayout: React.FC = () => {
 
           {/* Sub-page content */}
           <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 lg:pb-12 space-y-6">
-            <Outlet />
+            <Outlet context={{ openVoiceAssistant: () => setVoiceAssistantOpen(true), openVoiceIVR: () => setVoiceIVROpen(true) }} />
           </main>
         </div>
       </div>
