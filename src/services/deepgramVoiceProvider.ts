@@ -299,20 +299,18 @@ export class DeepgramVoiceProvider {
   }
 
   private _connectWebSocket(token: string): void {
-    const lang = this.language === 'hi' ? 'hi-IN' : 'en-IN';
+    // Deepgram Voice Agent WebSocket URL (v1/agent/converse with Sec-WebSocket-Protocol)
+    const wsUrl = 'wss://agent.deepgram.com/v1/agent/converse';
 
-    // Deepgram Voice Agent WebSocket URL
-    const wsUrl = `wss://agent.deepgram.com/agent?token=${token}`;
-
-    console.log('[DGAgent] Connecting WebSocket to Deepgram Voice Agent...');
+    console.log('[DGAgent] Connecting WebSocket to Deepgram Voice Agent at', wsUrl);
 
     try {
-      this.ws = new WebSocket(wsUrl);
+      this.ws = new WebSocket(wsUrl, ['bearer', token]);
       this.ws.binaryType = 'arraybuffer';
 
       this.ws.onopen = () => {
         console.log('[DGAgent] WebSocket connected');
-        this._sendSettings(lang);
+        this._sendSettings();
       };
 
       this.ws.onmessage = (event) => {
@@ -335,7 +333,7 @@ export class DeepgramVoiceProvider {
     }
   }
 
-  private _sendSettings(lang: string): void {
+  private _sendSettings(): void {
     const greeting =
       this.language === 'hi'
         ? 'Namaste! Main HealthSure Voice Agent hoon. Aap mujhse Hindi ya English mein baat kar sakte hain. Bataiye, main aapki kaise seva kar sakta hoon?'
@@ -383,7 +381,6 @@ Greeting to speak: "${greeting}"`;
         },
       },
       agent: {
-        language: lang,
         listen: {
           provider: {
             type: 'deepgram',
@@ -395,7 +392,7 @@ Greeting to speak: "${greeting}"`;
             type: 'open_ai',
             model: 'gpt-4o-mini',
           },
-          instructions: systemPrompt,
+          prompt: systemPrompt,
           functions: HEALTHSURE_FUNCTIONS,
         },
         speak: {
@@ -474,16 +471,16 @@ Greeting to speak: "${greeting}"`;
 
         case 'FunctionCallRequest': {
           // Deepgram LLM wants to call a HealthSure tool
-          const fnName = msg.function_name as string;
-          const fnCallId = msg.function_call_id as string;
-          const fnInput = msg.input as Record<string, any>;
+          const fnName = (msg.function_name || msg.name) as string;
+          const fnCallId = (msg.function_call_id || msg.id || ('call_' + Date.now())) as string;
+          const fnInput = (msg.input || msg.arguments || {}) as Record<string, any>;
           console.log('[DGAgent] Function call request:', fnName, fnInput);
           this._handleFunctionCall(fnName, fnInput, fnCallId);
           break;
         }
 
         case 'Error': {
-          const errMsg = msg.message || 'Voice agent error';
+          const errMsg = msg.description || msg.message || 'Voice agent error';
           console.error('[DGAgent] Server error:', errMsg);
           this.callbacks.onError(errMsg);
           break;
@@ -592,8 +589,11 @@ Greeting to speak: "${greeting}"`;
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({
           type: 'FunctionCallResponse',
+          id: callId,
           function_call_id: callId,
+          name: fnName,
           output: result,
+          content: result,
         }));
       }
     } catch (err: any) {
@@ -603,8 +603,11 @@ Greeting to speak: "${greeting}"`;
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({
           type: 'FunctionCallResponse',
+          id: callId,
           function_call_id: callId,
+          name: fnName,
           output: result,
+          content: result,
         }));
       }
     }
