@@ -1,5 +1,12 @@
-// HealthSure — Voice Healthcare Agent Interactive Modal
+// HealthSure — Voice Healthcare Agent Interactive Modal (Deepgram-powered)
 // frontend/src/components/patient/VoiceAssistantModal.tsx
+//
+// PRIMARY voice engine: Deepgram Voice Agent API (WebSocket)
+// Fallback: Text input (always available)
+//
+// SECURITY: No API keys in this file. Deepgram token fetched server-side via /api/deepgram-token.
+// ARCHITECTURE: DeepgramVoiceProvider handles mic + STT + LLM + TTS.
+//               voiceAgentService handles all HealthSure business logic via function calls.
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -21,8 +28,12 @@ import {
   Terminal,
   ChevronDown,
   ChevronUp,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import { voiceAgent } from '../../services/voiceAgentService';
+import { DeepgramVoiceProvider } from '../../services/deepgramVoiceProvider';
+import type { DeepgramAgentState } from '../../services/deepgramVoiceProvider';
 import type { VoiceConversationTurn } from '../../services/voiceAgentService';
 
 interface VoiceAssistantModalProps {
@@ -30,45 +41,41 @@ interface VoiceAssistantModalProps {
   onClose: () => void;
 }
 
-type AgentState = 'IDLE' | 'LISTENING' | 'PROCESSING' | 'SPEAKING' | 'ERROR';
-type MicPermissionStatus = 'granted' | 'denied' | 'prompt' | 'unsupported';
+// Extended UI states that map onto Deepgram agent states
+type UIAgentState = DeepgramAgentState | 'PROCESSING';
 
 const GREETING_HINDI =
-  'Namaste! HealthSure Voice Command mein aapka swagat hai. Bataiye, main aapki kaise seva kar sakta hoon?';
+  'Namaste! HealthSure Voice Agent mein aapka swagat hai. Bataiye, main aapki kaise seva kar sakta hoon?';
 const GREETING_ENGLISH =
-  'Welcome to HealthSure Voice Command. How can I help you today?';
+  'Welcome to HealthSure Voice Agent. How can I help you today?';
 
 export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
 
-  // Primary state
-  const [agentState, setAgentState] = useState<AgentState>('IDLE');
+  // Primary UI state
+  const [uiState, setUiState] = useState<UIAgentState>('IDLE');
   const [liveTranscript, setLiveTranscript] = useState('');
+  const [lastAgentResponse, setLastAgentResponse] = useState('');
   const [textInput, setTextInput] = useState('');
   const [turns, setTurns] = useState<VoiceConversationTurn[]>([]);
   const [selectedLanguage, setSelectedLanguage] = useState<'hi' | 'en'>('hi');
   const [isMuted, setIsMuted] = useState(false);
+  const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
 
   // Diagnostic state
-  const [micPermission, setMicPermission] = useState<MicPermissionStatus>('prompt');
-  const [speechSupported, setSpeechSupported] = useState<boolean>(true);
-  const [speechProvider, setSpeechProvider] = useState<string>('Detecting...');
-  const [lastEvent, setLastEvent] = useState<string>('idle');
-  const [lastError, setLastError] = useState<string>('none');
+  const [lastFunctionCall, setLastFunctionCall] = useState<string>('none');
+  const [lastFunctionResult, setLastFunctionResult] = useState<string>('');
   const [showDiagnostics, setShowDiagnostics] = useState<boolean>(false);
+  const [errorMsg, setErrorMsg] = useState<string>('');
 
-  // Refs for bulletproof lifecycle & zero stale closures
-  const recognitionRef = useRef<any>(null);
-  const synthRef = useRef<SpeechSynthesis | null>(null);
-  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  // Refs
   const turnsEndRef = useRef<HTMLDivElement>(null);
-  const isListeningRef = useRef<boolean>(false);
-  const transcriptRef = useRef<string>('');
-  const silenceTimerRef = useRef<any>(null);
+  const providerRef = useRef<DeepgramVoiceProvider | null>(null);
   const selectedLanguageRef = useRef<'hi' | 'en'>('hi');
   const isMutedRef = useRef<boolean>(false);
+  const isOpenRef = useRef<boolean>(false);
 
-  // Synchronize refs with state
+  // Sync refs with state
   useEffect(() => {
     selectedLanguageRef.current = selectedLanguage;
   }, [selectedLanguage]);
@@ -77,360 +84,150 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
     isMutedRef.current = isMuted;
   }, [isMuted]);
 
-  // Check Web Speech API support on mount
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const SpeechRecognition =
-        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        setSpeechSupported(true);
-        setSpeechProvider(
-          (window as any).SpeechRecognition
-            ? 'Standard SpeechRecognition'
-            : 'webkitSpeechRecognition (Blink/WebKit)'
-        );
-      } else {
-        setSpeechSupported(false);
-        setSpeechProvider('Unsupported');
-      }
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
 
-      if ('speechSynthesis' in window) {
-        synthRef.current = window.speechSynthesis;
-      }
-    }
-  }, []);
+  // Auto-scroll
+  useEffect(() => {
+    turnsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [turns, liveTranscript]);
 
-  // Stop speaking cleanly
-  const stopSpeaking = useCallback(() => {
-    if (synthRef.current) {
-      try {
-        console.log('[VOICE][TTS] Cancelling speech synthesis');
-        synthRef.current.cancel();
-      } catch (err) {
-        console.error('[VOICE][TTS] Error cancelling speech:', err);
-      }
-    }
-    currentUtteranceRef.current = null;
-    setAgentState((prev) => (prev === 'SPEAKING' ? 'IDLE' : prev));
-  }, []);
+  // ── Close handler ──────────────────────────────────────────────────────────
 
-  // Stop listening cleanly
-  const stopListening = useCallback(() => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-    isListeningRef.current = false;
-
-    if (recognitionRef.current) {
-      try {
-        console.log('[VOICE][RECOGNITION] Stopping recognition instance');
-        recognitionRef.current.stop();
-      } catch (err) {
-        console.warn('[VOICE][RECOGNITION] Error stopping recognition:', err);
-      }
-      recognitionRef.current = null;
-    }
-    setAgentState((prev) => (prev === 'LISTENING' ? 'IDLE' : prev));
-  }, []);
-
-  // Speak text via SpeechSynthesis
-  const speakText = useCallback(
-    (text: string) => {
-      if (isMutedRef.current || !synthRef.current) return;
-      try {
-        synthRef.current.cancel();
-        console.log('[VOICE][TTS] Speaking:', text);
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = selectedLanguageRef.current === 'hi' ? 'hi-IN' : 'en-IN';
-        utterance.rate = 0.95;
-        utterance.pitch = 1.0;
-
-        utterance.onstart = () => {
-          console.log('[VOICE][TTS] onstart');
-          setAgentState('SPEAKING');
-          setLastEvent('tts:onstart');
-        };
-
-        utterance.onend = () => {
-          console.log('[VOICE][TTS] onend');
-          currentUtteranceRef.current = null;
-          setAgentState((prev) => (prev === 'SPEAKING' ? 'IDLE' : prev));
-          setLastEvent('tts:onend');
-        };
-
-        utterance.onerror = (e) => {
-          console.warn('[VOICE][TTS] onerror:', e);
-          currentUtteranceRef.current = null;
-          setAgentState((prev) => (prev === 'SPEAKING' ? 'IDLE' : prev));
-          setLastError(`tts: ${e.error}`);
-        };
-
-        currentUtteranceRef.current = utterance;
-        synthRef.current.speak(utterance);
-      } catch (err: any) {
-        console.error('[VOICE][TTS] Exception:', err);
-        setAgentState('IDLE');
-      }
-    },
-    []
-  );
-
-  // Close handler: cancel everything cleanly and notify parent
   const handleClose = useCallback(() => {
-    console.log('[VOICE][STATE] Modal close requested');
-    stopListening();
-    stopSpeaking();
-    onClose();
-  }, [onClose, stopListening, stopSpeaking]);
-
-  // Submit query to voice agent service
-  const handleSubmitQuery = useCallback(
-    async (queryText: string) => {
-      const clean = queryText.trim();
-      if (!clean) return;
-
-      console.log('[VOICE][STATE] Submitting query:', clean);
-      stopSpeaking();
-      stopListening();
-
-      setTextInput('');
-      setLiveTranscript('');
-      transcriptRef.current = '';
-      setAgentState('PROCESSING');
-      setLastEvent('query:submitting');
-
-      try {
-        const result = await voiceAgent.processUserInput(clean);
-        setTurns([...result.state.history]);
-        setAgentState('IDLE');
-        setLastEvent('query:processed');
-
-        if (result.spokenResponse) {
-          speakText(result.spokenResponse);
-        }
-
-        if (result.navigateUrl) {
-          setTimeout(() => {
-            handleClose();
-            navigate(result.navigateUrl!);
-          }, 2000);
-        }
-      } catch (err: any) {
-        console.error('[VOICE][STATE] Error processing query:', err);
-        setAgentState('ERROR');
-        setLastError(err.message || 'Error processing speech');
-      }
-    },
-    [handleClose, navigate, speakText, stopListening, stopSpeaking]
-  );
-
-  // Cross-device microphone permission pre-flight helper
-  const requestMicrophonePermission = async (): Promise<boolean> => {
-    if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      try {
-        console.log('[VOICE][MIC] Requesting getUserMedia permission');
-        setLastEvent('mic:requesting_permission');
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach((track) => track.stop());
-        setMicPermission('granted');
-        setLastEvent('mic:permission_granted');
-        return true;
-      } catch (err: any) {
-        console.warn('[VOICE][MIC] getUserMedia denied or failed:', err);
-        setMicPermission('denied');
-        setLastError(err.name || 'Microphone access denied');
-        setLastEvent('mic:permission_denied');
-        return false;
-      }
+    console.log('[VoiceModal] Closing modal');
+    if (providerRef.current) {
+      providerRef.current.stop();
+      providerRef.current = null;
     }
-    return true;
-  };
-
-  // Start speech recognition session
-  const startListening = async () => {
-    stopSpeaking();
+    setUiState('IDLE');
     setLiveTranscript('');
-    transcriptRef.current = '';
-    setLastError('none');
+    setIsAgentSpeaking(false);
+    onClose();
+  }, [onClose]);
 
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  // ── Text-based query (fallback + confirmation buttons) ────────────────────
 
-    if (!SpeechRecognition) {
-      setSpeechSupported(false);
-      setMicPermission('unsupported');
-      setLastError('Web Speech API not supported in this browser');
-      setAgentState('ERROR');
-      return;
-    }
+  const handleTextQuery = useCallback(async (queryText: string) => {
+    const clean = queryText.trim();
+    if (!clean) return;
 
-    // Pre-flight permission (crucial for mobile Safari & Chrome)
-    const hasPermission = await requestMicrophonePermission();
-    if (!hasPermission) {
-      setAgentState('ERROR');
-      return;
-    }
-
-    // Clean up any existing recognition instance
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.abort();
-      } catch {}
-      recognitionRef.current = null;
-    }
+    console.log('[VoiceModal] Text query:', clean);
+    setTextInput('');
+    setUiState('PROCESSING');
 
     try {
-      console.log('[VOICE][RECOGNITION] Initializing SpeechRecognition instance');
-      const recognition = new SpeechRecognition();
+      voiceAgent.setLanguage(selectedLanguageRef.current);
+      const result = await voiceAgent.processUserInput(clean);
+      setTurns([...result.state.history]);
+      setUiState('IDLE');
+      setLastAgentResponse(result.spokenResponse);
 
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-      recognition.lang = selectedLanguageRef.current === 'hi' ? 'hi-IN' : 'en-IN';
-
-      recognition.onstart = () => {
-        console.log('[VOICE][RECOGNITION] onstart fired');
-        isListeningRef.current = true;
-        setAgentState('LISTENING');
-        setLastEvent('recognition:onstart');
-      };
-
-      recognition.onaudiostart = () => {
-        console.log('[VOICE][MIC] onaudiostart');
-        setLastEvent('mic:audiostart');
-      };
-
-      recognition.onsoundstart = () => {
-        console.log('[VOICE][MIC] onsoundstart');
-        setLastEvent('mic:soundstart');
-      };
-
-      recognition.onspeechstart = () => {
-        console.log('[VOICE][RECOGNITION] onspeechstart');
-        setLastEvent('recognition:speechstart');
-      };
-
-      recognition.onresult = (event: any) => {
-        let interim = '';
-        let final = '';
-
-        for (let i = 0; i < event.results.length; ++i) {
-          const item = event.results[i];
-          if (item.isFinal) {
-            final += item[0].transcript + ' ';
-          } else {
-            interim += item[0].transcript;
-          }
-        }
-
-        const combined = (final + interim).trim();
-        console.log('[VOICE][RESULT]', combined);
-        transcriptRef.current = combined;
-        setLiveTranscript(combined);
-        setLastEvent(`recognition:result ("${combined.slice(0, 24)}...")`);
-
-        // Silence detection: when speech is recognized, schedule auto-submit after 1.8s silence
-        if (silenceTimerRef.current) {
-          clearTimeout(silenceTimerRef.current);
-        }
-        if (combined.length > 1) {
-          silenceTimerRef.current = setTimeout(() => {
-            console.log('[VOICE][STATE] Silence timer expired, auto-submitting:', transcriptRef.current);
-            if (isListeningRef.current && transcriptRef.current.trim()) {
-              const toSubmit = transcriptRef.current.trim();
-              stopListening();
-              handleSubmitQuery(toSubmit);
-            }
-          }, 1800);
-        }
-      };
-
-      recognition.onspeechend = () => {
-        console.log('[VOICE][RECOGNITION] onspeechend');
-        setLastEvent('recognition:speechend');
-      };
-
-      recognition.onsoundend = () => {
-        console.log('[VOICE][MIC] onsoundend');
-        setLastEvent('mic:soundend');
-      };
-
-      recognition.onaudioend = () => {
-        console.log('[VOICE][MIC] onaudioend');
-        setLastEvent('mic:audioend');
-      };
-
-      recognition.onerror = (event: any) => {
-        console.warn('[VOICE][ERROR]', event.error, event.message);
-        setLastError(event.error + (event.message ? `: ${event.message}` : ''));
-        setLastEvent(`recognition:error (${event.error})`);
-
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          setMicPermission('denied');
-          isListeningRef.current = false;
-          setAgentState('ERROR');
-        } else if (event.error === 'no-speech') {
-          console.log('[VOICE][RECOGNITION] no-speech detected (ignoring ambient pause)');
-        } else if (event.error === 'network') {
-          setLastError('Speech recognition network service error');
-        }
-      };
-
-      recognition.onend = () => {
-        console.log(
-          '[VOICE][RECOGNITION] onend fired. isListening:',
-          isListeningRef.current,
-          'transcript:',
-          transcriptRef.current
-        );
-        setLastEvent('recognition:onend');
-
-        const pendingQuery = transcriptRef.current.trim();
-        if (isListeningRef.current && pendingQuery) {
-          isListeningRef.current = false;
-          recognitionRef.current = null;
-          setAgentState('PROCESSING');
-          handleSubmitQuery(pendingQuery);
-        } else {
-          isListeningRef.current = false;
-          recognitionRef.current = null;
-          setAgentState((prev) => (prev === 'LISTENING' ? 'IDLE' : prev));
-        }
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch (err: any) {
-      console.error('[VOICE][RECOGNITION] Failed to start recognition:', err);
-      setLastError(err.message || 'Failed to start recognition');
-      setMicPermission('denied');
-      setAgentState('ERROR');
-    }
-  };
-
-  // Toggle mic button handler (works repeatedly across turns)
-  const toggleMic = () => {
-    if (agentState === 'LISTENING') {
-      const pending = transcriptRef.current.trim();
-      stopListening();
-      if (pending) {
-        handleSubmitQuery(pending);
+      if (result.navigateUrl) {
+        setTimeout(() => {
+          handleClose();
+          navigate(result.navigateUrl!);
+        }, 2000);
       }
-    } else {
-      startListening();
+    } catch (err: any) {
+      console.error('[VoiceModal] Text query error:', err);
+      setUiState('ERROR');
+      setErrorMsg(err.message || 'Error processing your request');
     }
-  };
+  }, [handleClose, navigate]);
 
-  // Handle open & language greeting lifecycle
+  // ── Deepgram Voice Agent lifecycle ────────────────────────────────────────
+
+  const createProvider = useCallback((): DeepgramVoiceProvider => {
+    const provider = new DeepgramVoiceProvider({
+      language: selectedLanguageRef.current,
+      callbacks: {
+        onStateChange: (state) => {
+          console.log('[VoiceModal] Agent state:', state);
+          if (!isOpenRef.current) return;
+          setUiState(state);
+          if (state === 'ERROR') {
+            setIsAgentSpeaking(false);
+          }
+          if (state === 'IDLE') {
+            setIsAgentSpeaking(false);
+          }
+        },
+
+        onTranscript: (text, isFinal) => {
+          if (!isOpenRef.current) return;
+          setLiveTranscript(text);
+          if (isFinal) {
+            // Add user turn to local display
+            setTurns((prev) => [
+              ...prev,
+              {
+                id: 'turn-' + Date.now(),
+                sender: 'user',
+                text,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              },
+            ]);
+            setTimeout(() => setLiveTranscript(''), 500);
+          }
+        },
+
+        onAgentResponse: (text) => {
+          if (!isOpenRef.current) return;
+          console.log('[VoiceModal] Agent response:', text);
+          setLastAgentResponse(text);
+          // Update local conversation history from voiceAgent service
+          const state = voiceAgent.getState();
+          setTurns([...state.history]);
+        },
+
+        onAgentSpeaking: (playing) => {
+          if (!isOpenRef.current) return;
+          // If muted, don't update the visual speaking state from audio
+          if (!isMutedRef.current) {
+            setIsAgentSpeaking(playing);
+          }
+        },
+
+        onFunctionResult: (fnName, result) => {
+          if (!isOpenRef.current) return;
+          console.log('[VoiceModal] Function result:', fnName);
+          setLastFunctionCall(fnName);
+          setLastFunctionResult(result.slice(0, 100));
+          // Update turns from voiceAgentService state after function execution
+          const state = voiceAgent.getState();
+          setTurns([...state.history]);
+        },
+
+        onError: (msg) => {
+          if (!isOpenRef.current) return;
+          console.error('[VoiceModal] Provider error:', msg);
+          setErrorMsg(msg);
+          setUiState('ERROR');
+          setIsAgentSpeaking(false);
+        },
+
+        onNavigate: (url) => {
+          if (!isOpenRef.current) return;
+          handleClose();
+          navigate(url);
+        },
+      },
+    });
+
+    return provider;
+  }, [handleClose, navigate]);
+
+  // ── Open / close session lifecycle ────────────────────────────────────────
+
   useEffect(() => {
     if (isOpen) {
       voiceAgent.setLanguage(selectedLanguage);
+
+      // Seed greeting if fresh conversation
       const state = voiceAgent.getState();
-
       const greeting = selectedLanguage === 'hi' ? GREETING_HINDI : GREETING_ENGLISH;
-
-      // Only seed greeting if conversation is fresh or has only the previous welcome
       const isFresh =
         state.history.length === 0 ||
         (state.history.length === 1 && state.history[0].id === 'turn-welcome');
@@ -444,22 +241,134 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
         };
         state.history = [welcomeTurn];
         setTurns([welcomeTurn]);
-        speakText(greeting);
       } else {
         setTurns([...state.history]);
       }
-    } else {
-      stopListening();
-      stopSpeaking();
-    }
-  }, [isOpen, selectedLanguage, speakText, stopListening, stopSpeaking]);
 
-  // Auto-scroll chat history
-  useEffect(() => {
-    turnsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [turns, liveTranscript]);
+      // Start Deepgram provider
+      if (!providerRef.current) {
+        console.log('[VoiceModal] Creating new DeepgramVoiceProvider');
+        const provider = createProvider();
+        providerRef.current = provider;
+        provider.start().catch((err) => {
+          console.error('[VoiceModal] Provider start error:', err);
+          setErrorMsg(err.message || 'Failed to start voice agent');
+          setUiState('ERROR');
+        });
+      }
+    } else {
+      // Stop provider when modal closes
+      if (providerRef.current) {
+        providerRef.current.stop();
+        providerRef.current = null;
+      }
+      setUiState('IDLE');
+      setLiveTranscript('');
+      setIsAgentSpeaking(false);
+    }
+
+    return () => {
+      // Cleanup on unmount
+      if (providerRef.current && !isOpen) {
+        providerRef.current.stop();
+        providerRef.current = null;
+      }
+    };
+    // Only re-run when isOpen changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  // ── Language switch ────────────────────────────────────────────────────────
+
+  const handleLanguageSwitch = useCallback(() => {
+    const nextLang = selectedLanguage === 'hi' ? 'en' : 'hi';
+    setSelectedLanguage(nextLang);
+    voiceAgent.setLanguage(nextLang);
+    if (providerRef.current) {
+      providerRef.current.setLanguage(nextLang);
+    }
+  }, [selectedLanguage]);
+
+  // ── Mic button ─────────────────────────────────────────────────────────────
+
+  const handleMicButton = useCallback(() => {
+    if (uiState === 'SPEAKING' || isAgentSpeaking) {
+      // Barge-in: interrupt agent
+      providerRef.current?.interruptSpeaking();
+      return;
+    }
+
+    if (uiState === 'ERROR') {
+      // Retry: destroy old provider and start new one
+      if (providerRef.current) {
+        providerRef.current.stop();
+        providerRef.current = null;
+      }
+      setErrorMsg('');
+      setUiState('IDLE');
+      const provider = createProvider();
+      providerRef.current = provider;
+      provider.start().catch((err) => {
+        setErrorMsg(err.message || 'Failed to start voice agent');
+        setUiState('ERROR');
+      });
+      return;
+    }
+
+    if (uiState === 'IDLE' || uiState === 'RECONNECTING') {
+      // If no provider, create one
+      if (!providerRef.current) {
+        const provider = createProvider();
+        providerRef.current = provider;
+        provider.start().catch((err) => {
+          setErrorMsg(err.message || 'Failed to start voice agent');
+          setUiState('ERROR');
+        });
+      }
+      // Provider is running — mic is streaming continuously, nothing more to do
+      return;
+    }
+
+    // LISTENING / CONNECTING / PROCESSING — pressing mic has no action (agent is working)
+  }, [uiState, isAgentSpeaking, createProvider]);
+
+  // ── Mute toggle ─────────────────────────────────────────────────────────────
+
+  const handleMuteToggle = useCallback(() => {
+    setIsMuted((prev) => !prev);
+    // If muting while speaking, interrupt audio playback
+    if (!isMuted && isAgentSpeaking) {
+      providerRef.current?.interruptSpeaking();
+      setIsAgentSpeaking(false);
+    }
+  }, [isMuted, isAgentSpeaking]);
+
+  // ── Status label ─────────────────────────────────────────────────────────────
+
+  const getStatusLabel = (): string => {
+    if (uiState === 'CONNECTING') return 'Connecting to Voice Agent...';
+    if (uiState === 'RECONNECTING') return 'Reconnecting...';
+    if (uiState === 'LISTENING') {
+      return selectedLanguage === 'hi'
+        ? 'Sun raha hoon... (Listening — bolte rahiye)'
+        : 'Listening... (speak naturally)';
+    }
+    if (uiState === 'PROCESSING') return 'Processing your request...';
+    if (uiState === 'SPEAKING') {
+      return selectedLanguage === 'hi'
+        ? 'Bol raha hoon... (tap to interrupt)'
+        : 'Speaking response... (tap to interrupt)';
+    }
+    if (uiState === 'ERROR') return 'Tap Mic to Retry';
+    // IDLE
+    return selectedLanguage === 'hi'
+      ? 'Tap Mic to Speak (बोलने के लिए माइक दबाएं)'
+      : 'Tap Mic to Speak';
+  };
 
   if (!isOpen) return null;
+
+  const isConnected = uiState !== 'IDLE' && uiState !== 'ERROR' && uiState !== 'CONNECTING';
 
   return (
     <div
@@ -469,7 +378,8 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
       aria-labelledby="voice-assistant-title"
     >
       <div className="w-full max-w-lg bg-white dark:bg-[#072020] rounded-3xl border border-[#DDE8E4] dark:border-[#1A3A3A] shadow-2xl overflow-hidden flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-150 relative">
-        {/* ── Header ──────────────────────────────────────────────────────── */}
+
+        {/* ── Header ──────────────────────────────────────────────────────────── */}
         <div className="bg-gradient-to-r from-[#073B3A] via-[#094840] to-[#087F6D] text-white px-4 py-3.5 sm:px-5 sm:py-4 flex items-center justify-between shadow-md shrink-0">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <div className="w-10 h-10 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center text-[#4FD1C5] ring-2 ring-white/20 shrink-0">
@@ -478,30 +388,39 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <h2 id="voice-assistant-title" className="text-sm sm:text-base font-bold truncate">
-                  HealthSure Voice Command
+                  HealthSure Voice Agent
                 </h2>
-                <span className="text-[10px] uppercase font-extrabold tracking-wider px-2 py-0.5 rounded-full bg-[#4FD1C5]/20 text-[#A7D9CE] border border-[#4FD1C5]/30 shrink-0">
-                  LIVE
+                <span className={`text-[10px] uppercase font-extrabold tracking-wider px-2 py-0.5 rounded-full border shrink-0 ${
+                  isConnected
+                    ? 'bg-[#4FD1C5]/20 text-[#A7D9CE] border-[#4FD1C5]/30'
+                    : 'bg-white/10 text-white/60 border-white/20'
+                }`}>
+                  {isConnected ? 'LIVE' : uiState === 'CONNECTING' ? 'CONNECTING' : 'DEEPGRAM'}
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-[#A7D9CE] truncate">
                 {selectedLanguage === 'hi'
-                  ? 'Hindi & English Spoken Healthcare Assistant'
-                  : 'Natural Spoken Healthcare Assistant'}
+                  ? 'Hindi & English AI Healthcare Voice Agent'
+                  : 'Natural Language AI Healthcare Voice Agent'}
               </p>
             </div>
           </div>
 
-          {/* Action buttons (Mute, Lang, Standalone Close) */}
+          {/* Action buttons */}
           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-2">
+            {/* Connection indicator */}
+            <div className="p-2" title={isConnected ? 'Connected to Deepgram' : 'Disconnected'}>
+              {isConnected ? (
+                <Wifi className="w-3.5 h-3.5 text-[#4FD1C5]" />
+              ) : (
+                <WifiOff className="w-3.5 h-3.5 text-white/40" />
+              )}
+            </div>
+
             {/* Language Switch */}
             <button
               type="button"
-              onClick={() => {
-                const nextLang = selectedLanguage === 'hi' ? 'en' : 'hi';
-                setSelectedLanguage(nextLang);
-                voiceAgent.setLanguage(nextLang);
-              }}
+              onClick={handleLanguageSwitch}
               className="px-2.5 py-1 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold transition-all cursor-pointer border border-white/20"
               title="Switch Language"
             >
@@ -511,10 +430,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
             {/* Mute Toggle */}
             <button
               type="button"
-              onClick={() => {
-                if (!isMuted) stopSpeaking();
-                setIsMuted(!isMuted);
-              }}
+              onClick={handleMuteToggle}
               className="p-2 rounded-xl bg-white/15 hover:bg-white/25 text-white transition-colors cursor-pointer border border-white/20"
               aria-label={isMuted ? 'Unmute' : 'Mute'}
               title={isMuted ? 'Unmute Voice' : 'Mute Voice'}
@@ -526,7 +442,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
               )}
             </button>
 
-            {/* Standalone, High-Contrast Top-Right Close Button */}
+            {/* Close Button */}
             <button
               type="button"
               onClick={handleClose}
@@ -539,7 +455,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
           </div>
         </div>
 
-        {/* ── Conversation History ────────────────────────────────────────── */}
+        {/* ── Conversation History ────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3.5 bg-[#F9FBFA] dark:bg-[#051818] min-h-[220px]">
           {turns.map((t) => (
             <div
@@ -556,7 +472,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                 {t.text}
               </div>
 
-              {/* Action Card Render */}
+              {/* Action Cards */}
               {t.actionCard && (
                 <div className="w-full max-w-[90%] mt-2">
                   {/* Card 1: Confirm Booking */}
@@ -582,7 +498,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                       <div className="pt-2 flex items-center gap-2 border-t border-emerald-200 dark:border-emerald-800">
                         <button
                           type="button"
-                          onClick={() => handleSubmitQuery('Haan, book kar do')}
+                          onClick={() => handleTextQuery('Haan, book kar do')}
                           className="flex-1 py-2 px-3 rounded-xl bg-[#087F6D] hover:bg-[#073B3A] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
                         >
                           <Check className="w-4 h-4" />
@@ -590,7 +506,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleSubmitQuery('Nahi, cancel karo')}
+                          onClick={() => handleTextQuery('Nahi, cancel karo')}
                           className="py-2 px-3 rounded-xl bg-white dark:bg-[#0A2020] border border-[#DDE8E4] dark:border-[#1A3A3A] text-rose-600 dark:text-rose-400 text-xs font-bold hover:bg-rose-50 cursor-pointer"
                         >
                           Cancel
@@ -616,7 +532,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                       <div className="pt-2 flex items-center gap-2 border-t border-rose-200 dark:border-rose-900">
                         <button
                           type="button"
-                          onClick={() => handleSubmitQuery('Haan, cancel kar do')}
+                          onClick={() => handleTextQuery('Haan, cancel kar do')}
                           className="flex-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
                         >
                           <Check className="w-4 h-4" />
@@ -624,7 +540,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleSubmitQuery('Nahi, mat karo')}
+                          onClick={() => handleTextQuery('Nahi, mat karo')}
                           className="py-2 px-3 rounded-xl bg-white dark:bg-[#0A2020] border border-[#DDE8E4] text-[#64748B] text-xs font-bold cursor-pointer"
                         >
                           Keep
@@ -643,7 +559,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                         {t.actionCard.data.doctors?.map((doc: any) => (
                           <div
                             key={doc.id}
-                            onClick={() => handleSubmitQuery(`${doc.name} ke saath 11 baje book kar do`)}
+                            onClick={() => handleTextQuery(`${doc.name} ke saath 11 baje book kar do`)}
                             className="p-2 rounded-xl bg-[#F5F9F7] dark:bg-[#051818] hover:bg-emerald-100/50 flex items-center justify-between cursor-pointer text-xs"
                           >
                             <div>
@@ -692,8 +608,8 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
             </div>
           ))}
 
-          {/* Live Audio Transcript Preview */}
-          {agentState === 'LISTENING' && liveTranscript && (
+          {/* Live transcript preview */}
+          {liveTranscript && uiState === 'LISTENING' && (
             <div className="flex items-start">
               <div className="max-w-[85%] rounded-2xl p-3 bg-emerald-100/70 dark:bg-emerald-950/50 text-[#087F6D] dark:text-[#4FD1C5] text-xs sm:text-sm italic animate-pulse">
                 &ldquo;{liveTranscript}&rdquo;
@@ -701,73 +617,81 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
             </div>
           )}
 
-          {agentState === 'PROCESSING' && (
+          {uiState === 'PROCESSING' && (
             <div className="flex items-center gap-2 text-xs font-semibold text-[#087F6D] dark:text-[#4FD1C5] p-2">
               <div className="w-2 h-2 rounded-full bg-[#087F6D] animate-ping" />
-              <span>Thinking & checking real data...</span>
+              <span>Checking real health data...</span>
+            </div>
+          )}
+
+          {(uiState === 'CONNECTING' || uiState === 'RECONNECTING') && (
+            <div className="flex items-center gap-2 text-xs font-semibold text-amber-600 dark:text-amber-400 p-2">
+              <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+              <span>{uiState === 'CONNECTING' ? 'Connecting to Deepgram Voice Agent...' : 'Reconnecting...'}</span>
             </div>
           )}
 
           <div ref={turnsEndRef} />
         </div>
 
-        {/* ── Microphone / Voice Visualizer / Controls ─────────────────────── */}
+        {/* ── Controls ─────────────────────────────────────────────────────────── */}
         <div className="p-3.5 sm:p-4 bg-white dark:bg-[#072020] border-t border-[#DDE8E4] dark:border-[#1A3A3A] space-y-3 shrink-0">
-          {/* Permission / Support Warning */}
-          {micPermission === 'denied' && (
+
+          {/* Error Banner */}
+          {uiState === 'ERROR' && errorMsg && (
             <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <ShieldAlert className="w-4 h-4 shrink-0 text-rose-600" />
-                <span>Microphone access was denied. Please allow mic in browser settings or use text.</span>
+                <span>{errorMsg}</span>
               </div>
               <button
                 type="button"
-                onClick={() => startListening()}
-                className="px-2.5 py-1 rounded-lg bg-rose-600 text-white font-bold text-[11px] hover:bg-rose-700 cursor-pointer"
+                onClick={handleMicButton}
+                className="px-2.5 py-1 rounded-lg bg-rose-600 text-white font-bold text-[11px] hover:bg-rose-700 cursor-pointer shrink-0"
               >
                 Retry
               </button>
             </div>
           )}
 
-          {!speechSupported && (
-            <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>Speech Recognition not supported by this browser engine. Please type below.</span>
-            </div>
-          )}
-
-          {/* Center Voice Button & Visualizer */}
+          {/* Center Voice Button */}
           <div className="flex flex-col items-center justify-center space-y-1.5">
             <div className="relative flex items-center justify-center">
-              {/* Pulsing waves */}
-              {agentState === 'LISTENING' && (
+              {/* Pulsing rings based on state */}
+              {uiState === 'LISTENING' && (
                 <>
                   <div className="absolute w-20 h-20 rounded-full bg-emerald-500/20 animate-ping" />
                   <div className="absolute w-16 h-16 rounded-full bg-emerald-500/30 animate-pulse" />
                 </>
               )}
-              {agentState === 'SPEAKING' && (
+              {(uiState === 'SPEAKING' || isAgentSpeaking) && (
                 <div className="absolute w-18 h-18 rounded-full bg-blue-500/25 animate-pulse" />
+              )}
+              {(uiState === 'CONNECTING' || uiState === 'RECONNECTING') && (
+                <div className="absolute w-18 h-18 rounded-full bg-amber-500/25 animate-ping" />
               )}
 
               <button
                 type="button"
-                onClick={toggleMic}
+                onClick={handleMicButton}
                 className={`relative z-10 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95 cursor-pointer ${
-                  agentState === 'LISTENING'
-                    ? 'bg-rose-500 hover:bg-rose-600 text-white animate-bounce ring-4 ring-rose-300'
-                    : agentState === 'SPEAKING'
+                  uiState === 'LISTENING'
+                    ? 'bg-rose-500 hover:bg-rose-600 text-white ring-4 ring-rose-300'
+                    : uiState === 'SPEAKING' || isAgentSpeaking
                     ? 'bg-blue-600 hover:bg-blue-700 text-white ring-4 ring-blue-300'
-                    : agentState === 'ERROR'
+                    : uiState === 'ERROR'
                     ? 'bg-amber-600 hover:bg-amber-700 text-white ring-4 ring-amber-300'
+                    : uiState === 'CONNECTING' || uiState === 'RECONNECTING'
+                    ? 'bg-amber-500 text-white ring-4 ring-amber-300 opacity-75'
                     : 'bg-[#087F6D] hover:bg-[#073B3A] text-white ring-4 ring-emerald-300/40'
                 }`}
-                aria-label={agentState === 'LISTENING' ? 'Stop listening' : 'Start speaking'}
-                title={agentState === 'LISTENING' ? 'Tap to finish speaking' : 'Tap to speak'}
+                aria-label={uiState === 'LISTENING' ? 'Stop listening' : 'Start voice agent'}
+                title={uiState === 'LISTENING' ? 'Tap to interrupt' : uiState === 'SPEAKING' ? 'Tap to interrupt' : 'Tap to speak'}
               >
-                {agentState === 'LISTENING' ? (
+                {uiState === 'LISTENING' ? (
                   <MicOff className="w-6 h-6 text-white" />
+                ) : uiState === 'CONNECTING' || uiState === 'RECONNECTING' ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <Mic className="w-6 h-6 text-white" />
                 )}
@@ -776,15 +700,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
 
             <div className="text-center">
               <span className="text-xs font-bold text-[#17324D] dark:text-[#E2EEF4]">
-                {agentState === 'LISTENING'
-                  ? 'Sun raha hoon... (Listening — bolkar rukiye ya tap karein)'
-                  : agentState === 'SPEAKING'
-                  ? 'Speaking response...'
-                  : agentState === 'PROCESSING'
-                  ? 'Processing your request...'
-                  : agentState === 'ERROR'
-                  ? 'Tap Mic to Retry'
-                  : 'Tap Mic to Speak (बोलने के लिए माइक दबाएं)'}
+                {getStatusLabel()}
               </span>
             </div>
           </div>
@@ -793,24 +709,31 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs no-scrollbar">
             <button
               type="button"
-              onClick={() => handleSubmitQuery('Mujhe Wednesday ko available doctors batao')}
+              onClick={() => handleTextQuery('Mujhe Wednesday ko available doctors batao')}
               className="px-2.5 py-1 rounded-full bg-[#F5F9F7] dark:bg-[#0F2929] border border-[#DDE8E4] dark:border-[#1A3A3A] hover:border-[#087F6D] text-[#087F6D] dark:text-[#4FD1C5] font-semibold whitespace-nowrap cursor-pointer transition-colors"
             >
               Wednesday Doctors
             </button>
             <button
               type="button"
-              onClick={() => handleSubmitQuery('Meri next appointment kab hai?')}
+              onClick={() => handleTextQuery('Meri next appointment kab hai?')}
               className="px-2.5 py-1 rounded-full bg-[#F5F9F7] dark:bg-[#0F2929] border border-[#DDE8E4] dark:border-[#1A3A3A] hover:border-[#087F6D] text-[#087F6D] dark:text-[#4FD1C5] font-semibold whitespace-nowrap cursor-pointer transition-colors"
             >
               My Next Appointment
             </button>
             <button
               type="button"
-              onClick={() => handleSubmitQuery('Doctor se video consultation start karni hai')}
+              onClick={() => handleTextQuery('Doctor se video consultation start karni hai')}
               className="px-2.5 py-1 rounded-full bg-[#F5F9F7] dark:bg-[#0F2929] border border-[#DDE8E4] dark:border-[#1A3A3A] hover:border-[#087F6D] text-[#087F6D] dark:text-[#4FD1C5] font-semibold whitespace-nowrap cursor-pointer transition-colors"
             >
               Start Teleconsult
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTextQuery('Meri health records dikhao')}
+              className="px-2.5 py-1 rounded-full bg-[#F5F9F7] dark:bg-[#0F2929] border border-[#DDE8E4] dark:border-[#1A3A3A] hover:border-[#087F6D] text-[#087F6D] dark:text-[#4FD1C5] font-semibold whitespace-nowrap cursor-pointer transition-colors"
+            >
+              Health Records
             </button>
           </div>
 
@@ -818,7 +741,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              handleSubmitQuery(textInput);
+              handleTextQuery(textInput);
             }}
             className="flex items-center gap-2"
           >
@@ -843,7 +766,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
             </button>
           </form>
 
-          {/* ── Developer Diagnostic Area (Collapsible) ────────────────────── */}
+          {/* Developer Diagnostics (Collapsible) */}
           <div className="pt-1">
             <button
               type="button"
@@ -854,7 +777,10 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                 <Terminal className="w-3.5 h-3.5 text-[#087F6D]" />
                 <span>Developer Diagnostics</span>
                 <span className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[9px] font-mono uppercase">
-                  {agentState}
+                  {uiState}
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900 text-[9px] font-mono uppercase text-emerald-700 dark:text-emerald-300">
+                  DEEPGRAM
                 </span>
               </div>
               {showDiagnostics ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -865,43 +791,51 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                 <div className="grid grid-cols-2 gap-x-2 gap-y-1">
                   <div>
                     <span className="text-[#64748B]">State:</span>{' '}
-                    <span className="text-emerald-400 font-bold">{agentState}</span>
+                    <span className="text-emerald-400 font-bold">{uiState}</span>
+                  </div>
+                  <div>
+                    <span className="text-[#64748B]">Engine:</span>{' '}
+                    <span className="text-cyan-400 font-bold">Deepgram VA</span>
                   </div>
                   <div>
                     <span className="text-[#64748B]">Lang:</span>{' '}
                     <span className="text-white">{selectedLanguage === 'hi' ? 'hi-IN' : 'en-IN'}</span>
                   </div>
                   <div>
-                    <span className="text-[#64748B]">Mic Access:</span>{' '}
-                    <span className={micPermission === 'granted' ? 'text-emerald-400' : 'text-amber-400'}>
-                      {micPermission}
-                    </span>
+                    <span className="text-[#64748B]">Muted:</span>{' '}
+                    <span className={isMuted ? 'text-rose-400' : 'text-emerald-400'}>{isMuted ? 'yes' : 'no'}</span>
                   </div>
                   <div>
-                    <span className="text-[#64748B]">Speech Engine:</span>{' '}
-                    <span className={speechSupported ? 'text-emerald-400' : 'text-rose-400'}>
-                      {speechProvider}
-                    </span>
+                    <span className="text-[#64748B]">Agent Speaking:</span>{' '}
+                    <span className={isAgentSpeaking ? 'text-blue-400' : 'text-white'}>{isAgentSpeaking ? 'yes' : 'no'}</span>
                   </div>
                   <div>
-                    <span className="text-[#64748B]">TTS Engine:</span>{' '}
-                    <span className="text-white">
-                      {synthRef.current ? (currentUtteranceRef.current ? 'speaking' : 'ready') : 'none'}
-                    </span>
+                    <span className="text-[#64748B]">Connected:</span>{' '}
+                    <span className={isConnected ? 'text-emerald-400' : 'text-amber-400'}>{isConnected ? 'yes' : 'no'}</span>
                   </div>
-                  <div>
-                    <span className="text-[#64748B]">Last Event:</span>{' '}
-                    <span className="text-white truncate">{lastEvent}</span>
+                  <div className="col-span-2">
+                    <span className="text-[#64748B]">Last Fn Call:</span>{' '}
+                    <span className="text-white truncate">{lastFunctionCall}</span>
                   </div>
                 </div>
-                {lastError !== 'none' && (
-                  <div className="pt-1 text-rose-400 border-t border-rose-900/50">
-                    <span className="text-rose-300 font-bold">Last Error:</span> {lastError}
+                {lastAgentResponse && (
+                  <div className="pt-1 text-cyan-300 border-t border-[#1A3A3A] truncate">
+                    <span className="text-[#64748B]">Last Response:</span> &ldquo;{lastAgentResponse.slice(0, 80)}&rdquo;
                   </div>
                 )}
-                {transcriptRef.current && (
-                  <div className="pt-1 text-cyan-300 border-t border-[#1A3A3A] truncate">
-                    <span className="text-[#64748B]">Buffer:</span> &ldquo;{transcriptRef.current}&rdquo;
+                {lastFunctionResult && (
+                  <div className="pt-1 text-green-300 border-t border-[#1A3A3A] truncate">
+                    <span className="text-[#64748B]">Fn Result:</span> &ldquo;{lastFunctionResult}&rdquo;
+                  </div>
+                )}
+                {errorMsg && (
+                  <div className="pt-1 text-rose-400 border-t border-rose-900/50">
+                    <span className="text-rose-300 font-bold">Error:</span> {errorMsg}
+                  </div>
+                )}
+                {liveTranscript && (
+                  <div className="pt-1 text-yellow-300 border-t border-[#1A3A3A] truncate">
+                    <span className="text-[#64748B]">Live:</span> &ldquo;{liveTranscript}&rdquo;
                   </div>
                 )}
               </div>

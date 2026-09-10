@@ -21,6 +21,7 @@ import teleconsultRoutes from './routes/teleconsultRoutes.js';
 import diagnosticRoutes from './routes/diagnosticRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import deepgramRoutes from './routes/deepgramRoutes.js';
 
 export const createApp = () => {
   const app = express();
@@ -92,6 +93,7 @@ export const createApp = () => {
   app.use('/api/diagnostics', diagnosticRoutes);
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/admin', adminRoutes);
+  app.use('/api/deepgram-token', deepgramRoutes);
 
   // 404 Route Handler
   app.use('/api/*', (_req, res) => {

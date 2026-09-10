@@ -15,6 +15,7 @@
     "prisma:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@deepgram/sdk": "^5.10.0",
     "@prisma/client": "^6.4.1",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
