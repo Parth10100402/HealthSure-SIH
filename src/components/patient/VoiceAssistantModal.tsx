@@ -52,9 +52,9 @@ export type UIAgentState =
   | 'ERROR';
 
 const GREETING_HINDI =
-  'Namaste! HealthSure Voice Agent mein aapka swagat hai. Bataiye, main aapki kaise seva kar sakta hoon?';
+  'Namaste! HealthSure Voice Command mein aapka swagat hai. Bataiye, main aapki kaise seva kar sakta hoon?';
 const GREETING_ENGLISH =
-  'Welcome to HealthSure Voice Agent. How can I help you today?';
+  'Welcome to HealthSure Voice Command. How can I help you today?';
 
 export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
@@ -65,7 +65,13 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
   const [lastAgentResponse, setLastAgentResponse] = useState('');
   const [textInput, setTextInput] = useState('');
   const [turns, setTurns] = useState<VoiceConversationTurn[]>([]);
-  const [selectedLanguage, setSelectedLanguage] = useState<'hi' | 'en'>('hi');
+  const [selectedLanguage, setSelectedLanguage] = useState<'hi' | 'en'>(() => {
+    try {
+      const saved = localStorage.getItem('healthsure_voice_lang');
+      if (saved === 'en' || saved === 'hi') return saved;
+    } catch {}
+    return 'hi';
+  });
   const [isMuted, setIsMuted] = useState(false);
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
   const [audioVolume, setAudioVolume] = useState<number>(0);
@@ -131,7 +137,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
 
       try {
         voiceAgent.setLanguage(selectedLanguageRef.current);
-        const result = await voiceAgent.processUserInput(clean);
+        const result = await voiceAgent.processUserInput(clean, selectedLanguageRef.current);
 
         // Update conversation turns from voiceAgent
         setTurns([...result.state.history]);
@@ -376,16 +382,46 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  // ── Language switch ────────────────────────────────────────────────────────
-  const handleLanguageSwitch = useCallback(() => {
-    const nextLang = selectedLanguage === 'hi' ? 'en' : 'hi';
-    setSelectedLanguage(nextLang);
-    voiceAgent.setLanguage(nextLang);
-    // If agent is speaking, stop current speech
+  // ── Language selection with safe cancellation & state sync ────────────────
+  const handleSelectLanguage = useCallback((lang: 'hi' | 'en') => {
+    if (selectedLanguageRef.current === lang) return;
+
+    console.log(`[VoiceModal] Language switched to: ${lang}`);
+
+    // 1. Immediately cancel any active speech recording and halt ongoing TTS
+    speechRecorder.cancel();
     voicePipeline.stopSpeaking();
     setIsAgentSpeaking(false);
+    setAudioVolume(0);
     setUiState('IDLE');
-  }, [selectedLanguage]);
+    setLiveTranscript('');
+    setErrorMsg('');
+
+    // 2. Synchronize language across reactive state and refs
+    setSelectedLanguage(lang);
+    selectedLanguageRef.current = lang;
+    voiceAgent.setLanguage(lang);
+
+    // 3. Persist selection to localStorage
+    try {
+      localStorage.setItem('healthsure_voice_lang', lang);
+    } catch {}
+
+    // 4. If conversation has only the welcome greeting, update to newly selected language
+    const state = voiceAgent.getState();
+    if (state.history.length <= 1 && (state.history.length === 0 || state.history[0].id === 'turn-welcome')) {
+      const newGreeting = lang === 'hi' ? GREETING_HINDI : GREETING_ENGLISH;
+      const updatedTurn: VoiceConversationTurn = {
+        id: 'turn-welcome',
+        sender: 'agent',
+        text: newGreeting,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      state.history = [updatedTurn];
+      setTurns([updatedTurn]);
+      setLastAgentResponse(newGreeting);
+    }
+  }, []);
 
   // ── Mute toggle ────────────────────────────────────────────────────────────
   const handleMuteToggle = useCallback(() => {
@@ -404,32 +440,32 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
   const getStatusLabel = (): string => {
     if (uiState === 'LISTENING') {
       return selectedLanguage === 'hi'
-        ? 'Sun raha hoon... (बोलिए / Tap to finish)'
-        : 'Listening... (Speak now / Tap to stop)';
+        ? 'सुन रहा हूँ... (बोलिए / समाप्त करने के लिए टैप करें)'
+        : 'Listening... (Speak now / Tap to finish)';
     }
     if (uiState === 'TRANSCRIBING') {
       return selectedLanguage === 'hi'
-        ? 'Aapki aawaz samajh rahe hain (Nova-3)...'
+        ? 'आपकी आवाज़ समझ रहे हैं (Nova-3)...'
         : 'Transcribing speech (Nova-3)...';
     }
     if (uiState === 'PROCESSING') {
       return selectedLanguage === 'hi'
-        ? 'HealthSure data check ho raha hai...'
+        ? 'HealthSure डेटा चेक हो रहा है...'
         : 'Checking real health data...';
     }
     if (uiState === 'SPEAKING' || isAgentSpeaking) {
       return selectedLanguage === 'hi'
-        ? 'Bol raha hoon... (Tap mic to interrupt)'
-        : 'Speaking response... (Tap to interrupt)';
+        ? 'बोल रहा हूँ... (रोकने के लिए माइक दबाएं)'
+        : 'Speaking response... (Tap mic to interrupt)';
     }
     if (uiState === 'ERROR') {
       return selectedLanguage === 'hi'
-        ? 'Tap Mic to Retry (दोबारा बोलें)'
+        ? 'दोबारा बोलें (माइक पर टैप करें)'
         : 'Tap Mic to Retry';
     }
     // IDLE
     return selectedLanguage === 'hi'
-      ? 'Tap Mic to Speak (बोलने के लिए माइक दबाएं)'
+      ? 'बोलने के लिए माइक दबाएं'
       : 'Tap Mic to Speak';
   };
 
@@ -453,7 +489,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <h2 id="voice-assistant-title" className="text-sm sm:text-base font-bold truncate">
-                  HealthSure Voice Agent
+                  HealthSure Voice Command
                 </h2>
                 <span className="text-[10px] uppercase font-extrabold tracking-wider px-2 py-0.5 rounded-full border shrink-0 bg-[#4FD1C5]/20 text-[#A7D9CE] border-[#4FD1C5]/30">
                   NOVA-3 &amp; AURA
@@ -469,24 +505,41 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
 
           {/* Action buttons */}
           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-2">
-            {/* Engine status indicator */}
+            {/* Language Selector Segmented Toggle: [ Hindi | English ] */}
             <div
-              className="p-1.5 flex items-center gap-1 text-[11px] text-[#A7D9CE]"
-              title="Turn-Based Voice Architecture: STT -> Agent -> TTS"
+              className="inline-flex items-center p-0.5 rounded-xl bg-black/25 border border-white/20 text-xs font-semibold"
+              role="radiogroup"
+              aria-label="Voice language selector"
             >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="hidden sm:inline font-mono text-[10px]">READY</span>
+              <button
+                type="button"
+                onClick={() => handleSelectLanguage('hi')}
+                role="radio"
+                aria-checked={selectedLanguage === 'hi'}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  selectedLanguage === 'hi'
+                    ? 'bg-white text-[#073B3A] shadow-sm'
+                    : 'text-white/80 hover:text-white hover:bg-white/10'
+                }`}
+                title="Hindi / Hinglish"
+              >
+                Hindi
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectLanguage('en')}
+                role="radio"
+                aria-checked={selectedLanguage === 'en'}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  selectedLanguage === 'en'
+                    ? 'bg-white text-[#073B3A] shadow-sm'
+                    : 'text-white/80 hover:text-white hover:bg-white/10'
+                }`}
+                title="English"
+              >
+                English
+              </button>
             </div>
-
-            {/* Language Switch */}
-            <button
-              type="button"
-              onClick={handleLanguageSwitch}
-              className="px-2.5 py-1 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold transition-all cursor-pointer border border-white/20"
-              title="Switch Language"
-            >
-              {selectedLanguage === 'hi' ? 'English' : 'हिंदी'}
-            </button>
 
             {/* Mute Toggle */}
             <button

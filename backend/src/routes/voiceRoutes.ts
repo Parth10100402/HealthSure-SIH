@@ -23,6 +23,18 @@ const resolveServerApiKey = (): string => {
 };
 
 /**
+ * Centralized TTS voice configuration by language
+ */
+export const getTTSVoice = (language?: string): string => {
+  if (language === 'hi') {
+    // Warm, clear voice tuned for Hindi/Hinglish conversational synthesis
+    return 'aura-luna-en';
+  }
+  // Standard natural English voice
+  return 'aura-asteria-en';
+};
+
+/**
  * POST /api/speech-to-text or /api/voice/stt
  * Accepts raw audio recorded by browser MediaRecorder (audio/webm, audio/mp4, audio/wav)
  * Query: ?lang=hi or ?lang=en
@@ -53,7 +65,7 @@ const handleSpeechToText = async (req: Request, res: Response) => {
   }
 
   const lang = (req.query.lang as string) || (req.body?.language as string) || '';
-  const langParam = lang === 'hi' ? '&language=hi' : lang === 'en' ? '&language=en' : '';
+  const langParam = lang === 'hi' ? '&language=multi' : lang === 'en' ? '&language=en' : '';
   const contentType = req.headers['content-type'] || 'audio/webm';
 
   try {
@@ -124,10 +136,10 @@ const handleTextToSpeech = async (req: Request, res: Response) => {
   }
 
   try {
-    console.log(`[TTS] Synthesizing speech (${text.length} chars, lang: ${language || 'default'})...`);
+    const voiceModel = getTTSVoice(language);
+    console.log(`[TTS] Synthesizing speech (${text.length} chars, lang: ${language || 'default'}, voice: ${voiceModel})...`);
 
-    // Aura voice models provide natural sounding speech
-    const ttsUrl = `https://api.deepgram.com/v1/speak?model=aura-asteria-en`;
+    const ttsUrl = `https://api.deepgram.com/v1/speak?model=${voiceModel}`;
     const dgResponse = await fetch(ttsUrl, {
       method: 'POST',
       headers: {

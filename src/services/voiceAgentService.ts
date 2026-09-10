@@ -151,12 +151,25 @@ export class VoiceAgentService {
     this.state = this.getInitialState();
   }
 
-  public async processUserInput(text: string): Promise<{
+  public async processVoiceCommand(
+    text: string,
+    language?: VoiceLanguage
+  ) {
+    return this.processUserInput(text, language);
+  }
+
+  public async processUserInput(
+    text: string,
+    language?: VoiceLanguage
+  ): Promise<{
     spokenResponse: string;
     actionCard?: VoiceConversationTurn['actionCard'];
     navigateUrl?: string;
     state: VoiceConversationState;
   }> {
+    if (language) {
+      this.language = language;
+    }
     const trimmed = text.trim();
     const lower = trimmed.toLowerCase();
 
