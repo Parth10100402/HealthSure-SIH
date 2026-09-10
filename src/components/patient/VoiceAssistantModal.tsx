@@ -1,12 +1,15 @@
-// HealthSure — Voice Healthcare Agent Interactive Modal (Deepgram-powered)
+// HealthSure — Voice Healthcare Agent Interactive Modal (Turn-Based Architecture)
 // frontend/src/components/patient/VoiceAssistantModal.tsx
 //
-// PRIMARY voice engine: Deepgram Voice Agent API (WebSocket)
-// Fallback: Text input (always available)
+// ARCHITECTURE:
+//   1. Discrete speech turn capture via MediaRecorder (speechRecorderService)
+//   2. STT: POST /api/speech-to-text (Deepgram Nova-3) -> user transcript
+//   3. Logic: voiceAgentService.processUserInput(transcript) -> HealthSure actions
+//   4. TTS: POST /api/text-to-speech (Deepgram Aura) -> audio playback
+//   5. Immediate hardware microphone track release on stop
 //
-// SECURITY: No API keys in this file. Deepgram token fetched server-side via /api/deepgram-token.
-// ARCHITECTURE: DeepgramVoiceProvider handles mic + STT + LLM + TTS.
-//               voiceAgentService handles all HealthSure business logic via function calls.
+// SECURITY: Zero API keys client-side. Server proxies STT and TTS securely.
+// STATES: 'IDLE' | 'LISTENING' | 'TRANSCRIBING' | 'PROCESSING' | 'SPEAKING' | 'ERROR'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -28,12 +31,11 @@ import {
   Terminal,
   ChevronDown,
   ChevronUp,
-  Wifi,
-  WifiOff,
+  Loader2,
 } from 'lucide-react';
 import { voiceAgent } from '../../services/voiceAgentService';
-import { DeepgramVoiceProvider } from '../../services/deepgramVoiceProvider';
-import type { DeepgramAgentState } from '../../services/deepgramVoiceProvider';
+import { speechRecorder } from '../../services/speechRecorderService';
+import { voicePipeline } from '../../services/voicePipelineService';
 import type { VoiceConversationTurn } from '../../services/voiceAgentService';
 
 interface VoiceAssistantModalProps {
@@ -41,8 +43,13 @@ interface VoiceAssistantModalProps {
   onClose: () => void;
 }
 
-// Extended UI states that map onto Deepgram agent states
-type UIAgentState = DeepgramAgentState | 'PROCESSING';
+export type UIAgentState =
+  | 'IDLE'
+  | 'LISTENING'
+  | 'TRANSCRIBING'
+  | 'PROCESSING'
+  | 'SPEAKING'
+  | 'ERROR';
 
 const GREETING_HINDI =
   'Namaste! HealthSure Voice Agent mein aapka swagat hai. Bataiye, main aapki kaise seva kar sakta hoon?';
@@ -52,7 +59,7 @@ const GREETING_ENGLISH =
 export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
 
-  // Primary UI state
+  // Primary UI states
   const [uiState, setUiState] = useState<UIAgentState>('IDLE');
   const [liveTranscript, setLiveTranscript] = useState('');
   const [lastAgentResponse, setLastAgentResponse] = useState('');
@@ -61,6 +68,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
   const [selectedLanguage, setSelectedLanguage] = useState<'hi' | 'en'>('hi');
   const [isMuted, setIsMuted] = useState(false);
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
+  const [audioVolume, setAudioVolume] = useState<number>(0);
 
   // Diagnostic state
   const [lastFunctionCall, setLastFunctionCall] = useState<string>('none');
@@ -68,14 +76,13 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
   const [showDiagnostics, setShowDiagnostics] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
 
-  // Refs
+  // Refs for stale closure safety in async handlers
   const turnsEndRef = useRef<HTMLDivElement>(null);
-  const providerRef = useRef<DeepgramVoiceProvider | null>(null);
   const selectedLanguageRef = useRef<'hi' | 'en'>('hi');
   const isMutedRef = useRef<boolean>(false);
   const isOpenRef = useRef<boolean>(false);
+  const isGreetingPlayedRef = useRef<boolean>(false);
 
-  // Sync refs with state
   useEffect(() => {
     selectedLanguageRef.current = selectedLanguage;
   }, [selectedLanguage]);
@@ -88,144 +95,223 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
     isOpenRef.current = isOpen;
   }, [isOpen]);
 
-  // Auto-scroll
+  // Auto-scroll to bottom of conversation
   useEffect(() => {
     turnsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [turns, liveTranscript]);
+  }, [turns, liveTranscript, uiState]);
 
-  // ── Close handler ──────────────────────────────────────────────────────────
+  // ── Stop all active recording & audio safely ────────────────────────────────
+  const stopAllOperations = useCallback(() => {
+    speechRecorder.cancel();
+    voicePipeline.stopSpeaking();
+    setIsAgentSpeaking(false);
+    setAudioVolume(0);
+  }, []);
 
+  // ── Close handler ───────────────────────────────────────────────────────────
   const handleClose = useCallback(() => {
-    console.log('[VoiceModal] Closing modal');
-    if (providerRef.current) {
-      providerRef.current.stop();
-      providerRef.current = null;
-    }
+    console.log('[VoiceModal] Closing voice assistant modal');
+    stopAllOperations();
     setUiState('IDLE');
     setLiveTranscript('');
-    setIsAgentSpeaking(false);
+    setErrorMsg('');
+    isGreetingPlayedRef.current = false;
     onClose();
-  }, [onClose]);
+  }, [onClose, stopAllOperations]);
 
-  // ── Text-based query (fallback + confirmation buttons) ────────────────────
+  // ── Execute agent logic on a recognized text turn ──────────────────────────
+  const executeAgentTurn = useCallback(
+    async (userInputText: string) => {
+      const clean = userInputText.trim();
+      if (!clean) return;
 
-  const handleTextQuery = useCallback(async (queryText: string) => {
-    const clean = queryText.trim();
-    if (!clean) return;
+      console.log('[VoiceModal] Processing user input:', clean);
+      setUiState('PROCESSING');
+      setErrorMsg('');
 
-    console.log('[VoiceModal] Text query:', clean);
-    setTextInput('');
-    setUiState('PROCESSING');
+      try {
+        voiceAgent.setLanguage(selectedLanguageRef.current);
+        const result = await voiceAgent.processUserInput(clean);
+
+        // Update conversation turns from voiceAgent
+        setTurns([...result.state.history]);
+        setLastAgentResponse(result.spokenResponse);
+
+        if (result.actionCard) {
+          setLastFunctionCall(result.actionCard.type);
+          setLastFunctionResult(JSON.stringify(result.actionCard.data).slice(0, 100));
+        }
+
+        // Handle text-to-speech
+        if (result.spokenResponse && !isMutedRef.current) {
+          setUiState('SPEAKING');
+          setIsAgentSpeaking(true);
+
+          await voicePipeline.speakText(
+            result.spokenResponse,
+            selectedLanguageRef.current,
+            () => {
+              if (isOpenRef.current) {
+                setUiState('SPEAKING');
+                setIsAgentSpeaking(true);
+              }
+            },
+            () => {
+              if (isOpenRef.current) {
+                setIsAgentSpeaking(false);
+                setUiState('IDLE');
+              }
+            }
+          );
+        } else {
+          setUiState('IDLE');
+          setIsAgentSpeaking(false);
+        }
+
+        // Automatic navigation if intent warrants it
+        if (result.navigateUrl) {
+          setTimeout(() => {
+            if (isOpenRef.current) {
+              handleClose();
+              navigate(result.navigateUrl!);
+            }
+          }, 2400);
+        }
+      } catch (err: any) {
+        console.error('[VoiceModal] Error processing turn:', err);
+        setUiState('ERROR');
+        setErrorMsg(err.message || 'Kripya dobara koshish karein.');
+        setIsAgentSpeaking(false);
+      }
+    },
+    [handleClose, navigate]
+  );
+
+  // ── Text input query handler (and chips/buttons) ───────────────────────────
+  const handleTextQuery = useCallback(
+    async (queryText: string) => {
+      const clean = queryText.trim();
+      if (!clean) return;
+
+      // Stop any speaking audio
+      voicePipeline.stopSpeaking();
+      setIsAgentSpeaking(false);
+      setTextInput('');
+
+      await executeAgentTurn(clean);
+    },
+    [executeAgentTurn]
+  );
+
+  // ── Discrete Voice Turn Capture ───────────────────────────────────────────
+  const startListeningTurn = useCallback(async () => {
+    // If currently speaking, stop audio
+    voicePipeline.stopSpeaking();
+    setIsAgentSpeaking(false);
+    setErrorMsg('');
+    setLiveTranscript('');
+    setUiState('LISTENING');
 
     try {
-      voiceAgent.setLanguage(selectedLanguageRef.current);
-      const result = await voiceAgent.processUserInput(clean);
-      setTurns([...result.state.history]);
-      setUiState('IDLE');
-      setLastAgentResponse(result.spokenResponse);
+      console.log('[VoiceModal] Starting single-turn speech recording...');
+      const recordingResult = await speechRecorder.start({
+        maxDurationMs: 15000,
+        silenceThresholdMs: 2200,
+        onVolumeChange: (vol) => {
+          if (isOpenRef.current) {
+            setAudioVolume(vol);
+          }
+        },
+        onSilenceDetected: () => {
+          console.log('[VoiceModal] Silence detected, finalizing speech turn.');
+        },
+      });
 
-      if (result.navigateUrl) {
-        setTimeout(() => {
-          handleClose();
-          navigate(result.navigateUrl!);
-        }, 2000);
+      setAudioVolume(0);
+
+      if (!isOpenRef.current) {
+        console.log('[VoiceModal] Modal closed while recording, discarding.');
+        return;
       }
+
+      if (recordingResult.durationMs < 400 || recordingResult.blob.size < 800) {
+        // Ignored accidental tap or empty audio
+        console.log('[VoiceModal] Audio clip too short or silent.');
+        setUiState('IDLE');
+        return;
+      }
+
+      // Step 2: Transcribe via Deepgram Nova-3 STT
+      setUiState('TRANSCRIBING');
+      console.log('[VoiceModal] Transcribing audio blob...');
+
+      const transcript = await voicePipeline.transcribeAudio(
+        recordingResult.blob,
+        selectedLanguageRef.current
+      );
+
+      if (!isOpenRef.current) return;
+
+      if (!transcript || !transcript.trim()) {
+        console.log('[VoiceModal] No speech detected in audio.');
+        setUiState('IDLE');
+        setLiveTranscript(
+          selectedLanguageRef.current === 'hi'
+            ? 'Aapki aawaz sunayi nahi di. Kripya dobara bolein.'
+            : 'No speech detected. Please tap mic and speak clearly.'
+        );
+        setTimeout(() => {
+          if (isOpenRef.current) setLiveTranscript('');
+        }, 3000);
+        return;
+      }
+
+      // Step 3: Run transcript through existing Voice Agent
+      setLiveTranscript('');
+      await executeAgentTurn(transcript);
     } catch (err: any) {
-      console.error('[VoiceModal] Text query error:', err);
-      setUiState('ERROR');
-      setErrorMsg(err.message || 'Error processing your request');
+      console.error('[VoiceModal] Speech turn error:', err);
+      if (isOpenRef.current) {
+        setUiState('ERROR');
+        setErrorMsg(err.message || 'Microphone recording failed.');
+        setAudioVolume(0);
+      }
     }
-  }, [handleClose, navigate]);
+  }, [executeAgentTurn]);
 
-  // ── Deepgram Voice Agent lifecycle ────────────────────────────────────────
+  // ── Mic button click ────────────────────────────────────────────────────────
+  const handleMicButton = useCallback(() => {
+    // 1. If agent is currently speaking -> Barge-in (interrupt)
+    if (uiState === 'SPEAKING' || isAgentSpeaking) {
+      console.log('[VoiceModal] Barge-in: interrupting agent speaking.');
+      voicePipeline.stopSpeaking();
+      setIsAgentSpeaking(false);
+      setUiState('IDLE');
+      return;
+    }
 
-  const createProvider = useCallback((): DeepgramVoiceProvider => {
-    const provider = new DeepgramVoiceProvider({
-      language: selectedLanguageRef.current,
-      callbacks: {
-        onStateChange: (state) => {
-          console.log('[VoiceModal] Agent state:', state);
-          if (!isOpenRef.current) return;
-          setUiState(state);
-          if (state === 'ERROR') {
-            setIsAgentSpeaking(false);
-          }
-          if (state === 'IDLE') {
-            setIsAgentSpeaking(false);
-          }
-        },
+    // 2. If currently recording -> Stop recording early & proceed to transcribe
+    if (uiState === 'LISTENING') {
+      console.log('[VoiceModal] User stopped recording manually.');
+      speechRecorder.stop();
+      return;
+    }
 
-        onTranscript: (text, isFinal) => {
-          if (!isOpenRef.current) return;
-          setLiveTranscript(text);
-          if (isFinal) {
-            // Add user turn to local display
-            setTurns((prev) => [
-              ...prev,
-              {
-                id: 'turn-' + Date.now(),
-                sender: 'user',
-                text,
-                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              },
-            ]);
-            setTimeout(() => setLiveTranscript(''), 500);
-          }
-        },
+    // 3. If in error or idle state -> Start listening
+    if (uiState === 'IDLE' || uiState === 'ERROR') {
+      startListeningTurn();
+      return;
+    }
 
-        onAgentResponse: (text) => {
-          if (!isOpenRef.current) return;
-          console.log('[VoiceModal] Agent response:', text);
-          setLastAgentResponse(text);
-          // Update local conversation history from voiceAgent service
-          const state = voiceAgent.getState();
-          setTurns([...state.history]);
-        },
+    // 4. In transcribing or processing -> Busy, do nothing
+  }, [uiState, isAgentSpeaking, startListeningTurn]);
 
-        onAgentSpeaking: (playing) => {
-          if (!isOpenRef.current) return;
-          // If muted, don't update the visual speaking state from audio
-          if (!isMutedRef.current) {
-            setIsAgentSpeaking(playing);
-          }
-        },
-
-        onFunctionResult: (fnName, result) => {
-          if (!isOpenRef.current) return;
-          console.log('[VoiceModal] Function result:', fnName);
-          setLastFunctionCall(fnName);
-          setLastFunctionResult(result.slice(0, 100));
-          // Update turns from voiceAgentService state after function execution
-          const state = voiceAgent.getState();
-          setTurns([...state.history]);
-        },
-
-        onError: (msg) => {
-          if (!isOpenRef.current) return;
-          console.error('[VoiceModal] Provider error:', msg);
-          setErrorMsg(msg);
-          setUiState('ERROR');
-          setIsAgentSpeaking(false);
-        },
-
-        onNavigate: (url) => {
-          if (!isOpenRef.current) return;
-          handleClose();
-          navigate(url);
-        },
-      },
-    });
-
-    return provider;
-  }, [handleClose, navigate]);
-
-  // ── Open / close session lifecycle ────────────────────────────────────────
-
+  // ── Open / Close lifecycle ─────────────────────────────────────────────────
   useEffect(() => {
     if (isOpen) {
       voiceAgent.setLanguage(selectedLanguage);
 
-      // Seed greeting if fresh conversation
+      // Initialize greeting if fresh conversation
       const state = voiceAgent.getState();
       const greeting = selectedLanguage === 'hi' ? GREETING_HINDI : GREETING_ENGLISH;
       const isFresh =
@@ -241,125 +327,106 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
         };
         state.history = [welcomeTurn];
         setTurns([welcomeTurn]);
+        setLastAgentResponse(greeting);
+
+        // Speak greeting once on initial fresh open if not muted
+        if (!isGreetingPlayedRef.current && !isMutedRef.current) {
+          isGreetingPlayedRef.current = true;
+          setUiState('SPEAKING');
+          setIsAgentSpeaking(true);
+
+          voicePipeline
+            .speakText(
+              greeting,
+              selectedLanguage,
+              () => {
+                if (isOpenRef.current) {
+                  setUiState('SPEAKING');
+                  setIsAgentSpeaking(true);
+                }
+              },
+              () => {
+                if (isOpenRef.current) {
+                  setIsAgentSpeaking(false);
+                  setUiState('IDLE');
+                }
+              }
+            )
+            .catch(() => {
+              if (isOpenRef.current) {
+                setIsAgentSpeaking(false);
+                setUiState('IDLE');
+              }
+            });
+        }
       } else {
         setTurns([...state.history]);
-      }
-
-      // Start Deepgram provider
-      if (!providerRef.current) {
-        console.log('[VoiceModal] Creating new DeepgramVoiceProvider');
-        const provider = createProvider();
-        providerRef.current = provider;
-        provider.start().catch((err) => {
-          console.error('[VoiceModal] Provider start error:', err);
-          setErrorMsg(err.message || 'Failed to start voice agent');
-          setUiState('ERROR');
-        });
+        setUiState('IDLE');
       }
     } else {
-      // Stop provider when modal closes
-      if (providerRef.current) {
-        providerRef.current.stop();
-        providerRef.current = null;
-      }
+      // Modal closed
+      stopAllOperations();
       setUiState('IDLE');
       setLiveTranscript('');
-      setIsAgentSpeaking(false);
     }
 
     return () => {
-      // Cleanup on unmount
-      if (providerRef.current && !isOpen) {
-        providerRef.current.stop();
-        providerRef.current = null;
-      }
+      stopAllOperations();
     };
-    // Only re-run when isOpen changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   // ── Language switch ────────────────────────────────────────────────────────
-
   const handleLanguageSwitch = useCallback(() => {
     const nextLang = selectedLanguage === 'hi' ? 'en' : 'hi';
     setSelectedLanguage(nextLang);
     voiceAgent.setLanguage(nextLang);
-    if (providerRef.current) {
-      providerRef.current.setLanguage(nextLang);
-    }
+    // If agent is speaking, stop current speech
+    voicePipeline.stopSpeaking();
+    setIsAgentSpeaking(false);
+    setUiState('IDLE');
   }, [selectedLanguage]);
 
-  // ── Mic button ─────────────────────────────────────────────────────────────
-
-  const handleMicButton = useCallback(() => {
-    if (uiState === 'SPEAKING' || isAgentSpeaking) {
-      // Barge-in: interrupt agent
-      providerRef.current?.interruptSpeaking();
-      return;
-    }
-
-    if (uiState === 'ERROR') {
-      // Retry: destroy old provider and start new one
-      if (providerRef.current) {
-        providerRef.current.stop();
-        providerRef.current = null;
-      }
-      setErrorMsg('');
-      setUiState('IDLE');
-      const provider = createProvider();
-      providerRef.current = provider;
-      provider.start().catch((err) => {
-        setErrorMsg(err.message || 'Failed to start voice agent');
-        setUiState('ERROR');
-      });
-      return;
-    }
-
-    if (uiState === 'IDLE' || uiState === 'RECONNECTING') {
-      // If no provider, create one
-      if (!providerRef.current) {
-        const provider = createProvider();
-        providerRef.current = provider;
-        provider.start().catch((err) => {
-          setErrorMsg(err.message || 'Failed to start voice agent');
-          setUiState('ERROR');
-        });
-      }
-      // Provider is running — mic is streaming continuously, nothing more to do
-      return;
-    }
-
-    // LISTENING / CONNECTING / PROCESSING — pressing mic has no action (agent is working)
-  }, [uiState, isAgentSpeaking, createProvider]);
-
-  // ── Mute toggle ─────────────────────────────────────────────────────────────
-
+  // ── Mute toggle ────────────────────────────────────────────────────────────
   const handleMuteToggle = useCallback(() => {
-    setIsMuted((prev) => !prev);
-    // If muting while speaking, interrupt audio playback
-    if (!isMuted && isAgentSpeaking) {
-      providerRef.current?.interruptSpeaking();
-      setIsAgentSpeaking(false);
-    }
-  }, [isMuted, isAgentSpeaking]);
+    setIsMuted((prev) => {
+      const next = !prev;
+      if (next) {
+        voicePipeline.stopSpeaking();
+        setIsAgentSpeaking(false);
+        if (uiState === 'SPEAKING') setUiState('IDLE');
+      }
+      return next;
+    });
+  }, [uiState]);
 
-  // ── Status label ─────────────────────────────────────────────────────────────
-
+  // ── Status label helper ────────────────────────────────────────────────────
   const getStatusLabel = (): string => {
-    if (uiState === 'CONNECTING') return 'Connecting to Voice Agent...';
-    if (uiState === 'RECONNECTING') return 'Reconnecting...';
     if (uiState === 'LISTENING') {
       return selectedLanguage === 'hi'
-        ? 'Sun raha hoon... (Listening — bolte rahiye)'
-        : 'Listening... (speak naturally)';
+        ? 'Sun raha hoon... (बोलिए / Tap to finish)'
+        : 'Listening... (Speak now / Tap to stop)';
     }
-    if (uiState === 'PROCESSING') return 'Processing your request...';
-    if (uiState === 'SPEAKING') {
+    if (uiState === 'TRANSCRIBING') {
       return selectedLanguage === 'hi'
-        ? 'Bol raha hoon... (tap to interrupt)'
-        : 'Speaking response... (tap to interrupt)';
+        ? 'Aapki aawaz samajh rahe hain (Nova-3)...'
+        : 'Transcribing speech (Nova-3)...';
     }
-    if (uiState === 'ERROR') return 'Tap Mic to Retry';
+    if (uiState === 'PROCESSING') {
+      return selectedLanguage === 'hi'
+        ? 'HealthSure data check ho raha hai...'
+        : 'Checking real health data...';
+    }
+    if (uiState === 'SPEAKING' || isAgentSpeaking) {
+      return selectedLanguage === 'hi'
+        ? 'Bol raha hoon... (Tap mic to interrupt)'
+        : 'Speaking response... (Tap to interrupt)';
+    }
+    if (uiState === 'ERROR') {
+      return selectedLanguage === 'hi'
+        ? 'Tap Mic to Retry (दोबारा बोलें)'
+        : 'Tap Mic to Retry';
+    }
     // IDLE
     return selectedLanguage === 'hi'
       ? 'Tap Mic to Speak (बोलने के लिए माइक दबाएं)'
@@ -367,8 +434,6 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
   };
 
   if (!isOpen) return null;
-
-  const isConnected = uiState !== 'IDLE' && uiState !== 'ERROR' && uiState !== 'CONNECTING';
 
   return (
     <div
@@ -379,7 +444,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
     >
       <div className="w-full max-w-lg bg-white dark:bg-[#072020] rounded-3xl border border-[#DDE8E4] dark:border-[#1A3A3A] shadow-2xl overflow-hidden flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-150 relative">
 
-        {/* ── Header ──────────────────────────────────────────────────────────── */}
+        {/* ── Header ────────────────────────────────────────────────────────── */}
         <div className="bg-gradient-to-r from-[#073B3A] via-[#094840] to-[#087F6D] text-white px-4 py-3.5 sm:px-5 sm:py-4 flex items-center justify-between shadow-md shrink-0">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <div className="w-10 h-10 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center text-[#4FD1C5] ring-2 ring-white/20 shrink-0">
@@ -390,12 +455,8 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                 <h2 id="voice-assistant-title" className="text-sm sm:text-base font-bold truncate">
                   HealthSure Voice Agent
                 </h2>
-                <span className={`text-[10px] uppercase font-extrabold tracking-wider px-2 py-0.5 rounded-full border shrink-0 ${
-                  isConnected
-                    ? 'bg-[#4FD1C5]/20 text-[#A7D9CE] border-[#4FD1C5]/30'
-                    : 'bg-white/10 text-white/60 border-white/20'
-                }`}>
-                  {isConnected ? 'LIVE' : uiState === 'CONNECTING' ? 'CONNECTING' : 'DEEPGRAM'}
+                <span className="text-[10px] uppercase font-extrabold tracking-wider px-2 py-0.5 rounded-full border shrink-0 bg-[#4FD1C5]/20 text-[#A7D9CE] border-[#4FD1C5]/30">
+                  NOVA-3 &amp; AURA
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-[#A7D9CE] truncate">
@@ -408,13 +469,13 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
 
           {/* Action buttons */}
           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-2">
-            {/* Connection indicator */}
-            <div className="p-2" title={isConnected ? 'Connected to Deepgram' : 'Disconnected'}>
-              {isConnected ? (
-                <Wifi className="w-3.5 h-3.5 text-[#4FD1C5]" />
-              ) : (
-                <WifiOff className="w-3.5 h-3.5 text-white/40" />
-              )}
+            {/* Engine status indicator */}
+            <div
+              className="p-1.5 flex items-center gap-1 text-[11px] text-[#A7D9CE]"
+              title="Turn-Based Voice Architecture: STT -> Agent -> TTS"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="hidden sm:inline font-mono text-[10px]">READY</span>
             </div>
 
             {/* Language Switch */}
@@ -455,7 +516,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
           </div>
         </div>
 
-        {/* ── Conversation History ────────────────────────────────────────────── */}
+        {/* ── Conversation History ──────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3.5 bg-[#F9FBFA] dark:bg-[#051818] min-h-[220px]">
           {turns.map((t) => (
             <div
@@ -488,7 +549,10 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                         </div>
                         <div className="flex items-center gap-2 text-[#64748B] dark:text-[#7B9EA8]">
                           <Clock className="w-3.5 h-3.5 text-[#087F6D]" />
-                          <span>{t.actionCard.data.dateDisplay || t.actionCard.data.date} at {t.actionCard.data.time}</span>
+                          <span>
+                            {t.actionCard.data.dateDisplay || t.actionCard.data.date} at{' '}
+                            {t.actionCard.data.time}
+                          </span>
                         </div>
                         <div className="flex items-center gap-2 text-[#64748B] dark:text-[#7B9EA8]">
                           <MapPin className="w-3.5 h-3.5 text-[#087F6D]" />
@@ -523,7 +587,8 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                         <span>Confirm Appointment Cancellation</span>
                       </div>
                       <div className="text-xs text-[#17324D] dark:text-[#E2EEF4]">
-                        Doctor: <strong>{t.actionCard.data.doctorName}</strong> ({t.actionCard.data.speciality})
+                        Doctor: <strong>{t.actionCard.data.doctorName}</strong> (
+                        {t.actionCard.data.speciality})
                         <br />
                         Date: {t.actionCard.data.date} at {t.actionCard.data.time}
                         <br />
@@ -559,12 +624,18 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                         {t.actionCard.data.doctors?.map((doc: any) => (
                           <div
                             key={doc.id}
-                            onClick={() => handleTextQuery(`${doc.name} ke saath 11 baje book kar do`)}
+                            onClick={() =>
+                              handleTextQuery(`${doc.name} ke saath 11 baje book kar do`)
+                            }
                             className="p-2 rounded-xl bg-[#F5F9F7] dark:bg-[#051818] hover:bg-emerald-100/50 flex items-center justify-between cursor-pointer text-xs"
                           >
                             <div>
-                              <div className="font-bold text-[#17324D] dark:text-[#E2EEF4]">{doc.name}</div>
-                              <div className="text-[11px] text-[#64748B] dark:text-[#7B9EA8]">{doc.speciality}</div>
+                              <div className="font-bold text-[#17324D] dark:text-[#E2EEF4]">
+                                {doc.name}
+                              </div>
+                              <div className="text-[11px] text-[#64748B] dark:text-[#7B9EA8]">
+                                {doc.speciality}
+                              </div>
                             </div>
                             <span className="text-[11px] font-bold text-[#087F6D] dark:text-[#4FD1C5] flex items-center gap-1">
                               Book <ArrowRight className="w-3 h-3" />
@@ -584,7 +655,8 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                       <div className="text-[#17324D] dark:text-[#E2EEF4]">
                         {t.actionCard.data.fromFacility} ➔ {t.actionCard.data.toFacility}
                         <br />
-                        Department: {t.actionCard.data.department} | Priority: {t.actionCard.data.priority}
+                        Department: {t.actionCard.data.department} | Priority:{' '}
+                        {t.actionCard.data.priority}
                       </div>
                     </div>
                   )}
@@ -596,9 +668,16 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                         Latest Health Records
                       </div>
                       {t.actionCard.data.records?.map((r: any) => (
-                        <div key={r.id} className="p-2 rounded-xl bg-white dark:bg-[#0A2020] border border-blue-100">
-                          <div className="font-bold">{r.diagnosis} • {r.date}</div>
-                          <div className="text-[11px] text-[#64748B]">{r.doctorName} ({r.speciality})</div>
+                        <div
+                          key={r.id}
+                          className="p-2 rounded-xl bg-white dark:bg-[#0A2020] border border-blue-100"
+                        >
+                          <div className="font-bold">
+                            {r.diagnosis} • {r.date}
+                          </div>
+                          <div className="text-[11px] text-[#64748B]">
+                            {r.doctorName} ({r.speciality})
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -608,8 +687,8 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
             </div>
           ))}
 
-          {/* Live transcript preview */}
-          {liveTranscript && uiState === 'LISTENING' && (
+          {/* Live transcript or status feedback */}
+          {liveTranscript && (
             <div className="flex items-start">
               <div className="max-w-[85%] rounded-2xl p-3 bg-emerald-100/70 dark:bg-emerald-950/50 text-[#087F6D] dark:text-[#4FD1C5] text-xs sm:text-sm italic animate-pulse">
                 &ldquo;{liveTranscript}&rdquo;
@@ -617,24 +696,24 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
             </div>
           )}
 
-          {uiState === 'PROCESSING' && (
-            <div className="flex items-center gap-2 text-xs font-semibold text-[#087F6D] dark:text-[#4FD1C5] p-2">
-              <div className="w-2 h-2 rounded-full bg-[#087F6D] animate-ping" />
-              <span>Checking real health data...</span>
+          {uiState === 'TRANSCRIBING' && (
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#087F6D] dark:text-[#4FD1C5] p-2 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl">
+              <Loader2 className="w-4 h-4 animate-spin text-[#087F6D]" />
+              <span>Transcribing audio via Deepgram Nova-3...</span>
             </div>
           )}
 
-          {(uiState === 'CONNECTING' || uiState === 'RECONNECTING') && (
-            <div className="flex items-center gap-2 text-xs font-semibold text-amber-600 dark:text-amber-400 p-2">
-              <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-              <span>{uiState === 'CONNECTING' ? 'Connecting to Deepgram Voice Agent...' : 'Reconnecting...'}</span>
+          {uiState === 'PROCESSING' && (
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#087F6D] dark:text-[#4FD1C5] p-2 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl">
+              <div className="w-2 h-2 rounded-full bg-[#087F6D] animate-ping" />
+              <span>Checking real HealthSure database &amp; doctor schedules...</span>
             </div>
           )}
 
           <div ref={turnsEndRef} />
         </div>
 
-        {/* ── Controls ─────────────────────────────────────────────────────────── */}
+        {/* ── Controls ──────────────────────────────────────────────────────── */}
         <div className="p-3.5 sm:p-4 bg-white dark:bg-[#072020] border-t border-[#DDE8E4] dark:border-[#1A3A3A] space-y-3 shrink-0">
 
           {/* Error Banner */}
@@ -657,41 +736,58 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
           {/* Center Voice Button */}
           <div className="flex flex-col items-center justify-center space-y-1.5">
             <div className="relative flex items-center justify-center">
-              {/* Pulsing rings based on state */}
+              {/* Audio volume visualizer rings when listening */}
               {uiState === 'LISTENING' && (
                 <>
-                  <div className="absolute w-20 h-20 rounded-full bg-emerald-500/20 animate-ping" />
-                  <div className="absolute w-16 h-16 rounded-full bg-emerald-500/30 animate-pulse" />
+                  <div
+                    className="absolute rounded-full bg-emerald-500/20 transition-all duration-75"
+                    style={{
+                      width: `${64 + Math.round(audioVolume * 36)}px`,
+                      height: `${64 + Math.round(audioVolume * 36)}px`,
+                    }}
+                  />
+                  <div className="absolute w-20 h-20 rounded-full bg-emerald-500/25 animate-ping" />
                 </>
               )}
+
               {(uiState === 'SPEAKING' || isAgentSpeaking) && (
                 <div className="absolute w-18 h-18 rounded-full bg-blue-500/25 animate-pulse" />
-              )}
-              {(uiState === 'CONNECTING' || uiState === 'RECONNECTING') && (
-                <div className="absolute w-18 h-18 rounded-full bg-amber-500/25 animate-ping" />
               )}
 
               <button
                 type="button"
                 onClick={handleMicButton}
-                className={`relative z-10 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95 cursor-pointer ${
+                disabled={uiState === 'TRANSCRIBING' || uiState === 'PROCESSING'}
+                className={`relative z-10 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-95 cursor-pointer disabled:cursor-not-allowed ${
                   uiState === 'LISTENING'
-                    ? 'bg-rose-500 hover:bg-rose-600 text-white ring-4 ring-rose-300'
+                    ? 'bg-rose-500 hover:bg-rose-600 text-white ring-4 ring-rose-300 animate-pulse'
                     : uiState === 'SPEAKING' || isAgentSpeaking
                     ? 'bg-blue-600 hover:bg-blue-700 text-white ring-4 ring-blue-300'
                     : uiState === 'ERROR'
                     ? 'bg-amber-600 hover:bg-amber-700 text-white ring-4 ring-amber-300'
-                    : uiState === 'CONNECTING' || uiState === 'RECONNECTING'
-                    ? 'bg-amber-500 text-white ring-4 ring-amber-300 opacity-75'
+                    : uiState === 'TRANSCRIBING' || uiState === 'PROCESSING'
+                    ? 'bg-[#087F6D]/70 text-white ring-4 ring-emerald-200'
                     : 'bg-[#087F6D] hover:bg-[#073B3A] text-white ring-4 ring-emerald-300/40'
                 }`}
-                aria-label={uiState === 'LISTENING' ? 'Stop listening' : 'Start voice agent'}
-                title={uiState === 'LISTENING' ? 'Tap to interrupt' : uiState === 'SPEAKING' ? 'Tap to interrupt' : 'Tap to speak'}
+                aria-label={
+                  uiState === 'LISTENING'
+                    ? 'Stop listening'
+                    : uiState === 'SPEAKING'
+                    ? 'Tap to interrupt'
+                    : 'Tap to speak'
+                }
+                title={
+                  uiState === 'LISTENING'
+                    ? 'Tap to stop'
+                    : uiState === 'SPEAKING'
+                    ? 'Tap to interrupt'
+                    : 'Tap to speak'
+                }
               >
                 {uiState === 'LISTENING' ? (
                   <MicOff className="w-6 h-6 text-white" />
-                ) : uiState === 'CONNECTING' || uiState === 'RECONNECTING' ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : uiState === 'TRANSCRIBING' || uiState === 'PROCESSING' ? (
+                  <Loader2 className="w-6 h-6 text-white animate-spin" />
                 ) : (
                   <Mic className="w-6 h-6 text-white" />
                 )}
@@ -758,7 +854,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
             />
             <button
               type="submit"
-              disabled={!textInput.trim()}
+              disabled={!textInput.trim() || uiState === 'PROCESSING'}
               className="p-2.5 rounded-xl bg-[#087F6D] hover:bg-[#073B3A] disabled:opacity-40 text-white transition-all shadow-xs cursor-pointer"
               aria-label="Send message"
             >
@@ -775,15 +871,19 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
             >
               <div className="flex items-center gap-1.5">
                 <Terminal className="w-3.5 h-3.5 text-[#087F6D]" />
-                <span>Developer Diagnostics</span>
+                <span>Architecture Diagnostics</span>
                 <span className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[9px] font-mono uppercase">
                   {uiState}
                 </span>
                 <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900 text-[9px] font-mono uppercase text-emerald-700 dark:text-emerald-300">
-                  DEEPGRAM
+                  TURN-BASED REST
                 </span>
               </div>
-              {showDiagnostics ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              {showDiagnostics ? (
+                <ChevronUp className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5" />
+              )}
             </button>
 
             {showDiagnostics && (
@@ -794,24 +894,32 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                     <span className="text-emerald-400 font-bold">{uiState}</span>
                   </div>
                   <div>
-                    <span className="text-[#64748B]">Engine:</span>{' '}
-                    <span className="text-cyan-400 font-bold">Deepgram VA</span>
+                    <span className="text-[#64748B]">Pipeline:</span>{' '}
+                    <span className="text-cyan-400 font-bold">Nova-3 STT + Aura TTS</span>
                   </div>
                   <div>
                     <span className="text-[#64748B]">Lang:</span>{' '}
-                    <span className="text-white">{selectedLanguage === 'hi' ? 'hi-IN' : 'en-IN'}</span>
+                    <span className="text-white">
+                      {selectedLanguage === 'hi' ? 'hi-IN' : 'en-IN'}
+                    </span>
                   </div>
                   <div>
                     <span className="text-[#64748B]">Muted:</span>{' '}
-                    <span className={isMuted ? 'text-rose-400' : 'text-emerald-400'}>{isMuted ? 'yes' : 'no'}</span>
+                    <span className={isMuted ? 'text-rose-400' : 'text-emerald-400'}>
+                      {isMuted ? 'yes' : 'no'}
+                    </span>
                   </div>
                   <div>
-                    <span className="text-[#64748B]">Agent Speaking:</span>{' '}
-                    <span className={isAgentSpeaking ? 'text-blue-400' : 'text-white'}>{isAgentSpeaking ? 'yes' : 'no'}</span>
+                    <span className="text-[#64748B]">Speaking:</span>{' '}
+                    <span className={isAgentSpeaking ? 'text-blue-400' : 'text-white'}>
+                      {isAgentSpeaking ? 'yes' : 'no'}
+                    </span>
                   </div>
                   <div>
-                    <span className="text-[#64748B]">Connected:</span>{' '}
-                    <span className={isConnected ? 'text-emerald-400' : 'text-amber-400'}>{isConnected ? 'yes' : 'no'}</span>
+                    <span className="text-[#64748B]">Mic Active:</span>{' '}
+                    <span className={speechRecorder.isActive() ? 'text-rose-400' : 'text-slate-400'}>
+                      {speechRecorder.isActive() ? 'recording' : 'released'}
+                    </span>
                   </div>
                   <div className="col-span-2">
                     <span className="text-[#64748B]">Last Fn Call:</span>{' '}
@@ -820,22 +928,19 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({ isOpen
                 </div>
                 {lastAgentResponse && (
                   <div className="pt-1 text-cyan-300 border-t border-[#1A3A3A] truncate">
-                    <span className="text-[#64748B]">Last Response:</span> &ldquo;{lastAgentResponse.slice(0, 80)}&rdquo;
+                    <span className="text-[#64748B]">Last Response:</span> &ldquo;
+                    {lastAgentResponse.slice(0, 80)}&rdquo;
                   </div>
                 )}
                 {lastFunctionResult && (
                   <div className="pt-1 text-green-300 border-t border-[#1A3A3A] truncate">
-                    <span className="text-[#64748B]">Fn Result:</span> &ldquo;{lastFunctionResult}&rdquo;
+                    <span className="text-[#64748B]">Fn Result:</span> &ldquo;{lastFunctionResult}
+                    &rdquo;
                   </div>
                 )}
                 {errorMsg && (
                   <div className="pt-1 text-rose-400 border-t border-rose-900/50">
                     <span className="text-rose-300 font-bold">Error:</span> {errorMsg}
-                  </div>
-                )}
-                {liveTranscript && (
-                  <div className="pt-1 text-yellow-300 border-t border-[#1A3A3A] truncate">
-                    <span className="text-[#64748B]">Live:</span> &ldquo;{liveTranscript}&rdquo;
                   </div>
                 )}
               </div>

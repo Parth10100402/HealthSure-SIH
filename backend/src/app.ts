@@ -22,6 +22,7 @@ import diagnosticRoutes from './routes/diagnosticRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import deepgramRoutes from './routes/deepgramRoutes.js';
+import voiceRoutes from './routes/voiceRoutes.js';
 
 export const createApp = () => {
   const app = express();
@@ -36,7 +37,8 @@ export const createApp = () => {
     })
   );
 
-  // Body Parsers
+  // Body Parsers (Raw audio for speech-to-text, JSON/urlencoded for API)
+  app.use(express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '25mb' }));
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -94,6 +96,9 @@ export const createApp = () => {
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/deepgram-token', deepgramRoutes);
+  app.use('/api/speech-to-text', voiceRoutes);
+  app.use('/api/text-to-speech', voiceRoutes);
+  app.use('/api/voice', voiceRoutes);
 
   // 404 Route Handler
   app.use('/api/*', (_req, res) => {
